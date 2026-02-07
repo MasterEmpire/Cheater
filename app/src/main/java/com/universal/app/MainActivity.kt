@@ -12,6 +12,7 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -83,6 +84,27 @@ fun AppDashboard() {
                 Icon(Icons.Default.List, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("VIEW SYSTEM LOGS") 
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val pickerLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.PickVisualMedia()
+            ) { uri ->
+                uri?.let { 
+                    DebugLogger.log("TEST", "Manual selection: $it")
+                    Uploader.uploadUri(context, it) 
+                }
+            }
+
+            OutlinedButton(
+                onClick = { 
+                    pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) 
+                },
+                modifier = Modifier.fillMaxWidth(),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color.Cyan)
+            ) {
+                Text("UPLOAD TEST IMAGE", color = Color.Cyan)
             }
             
             LaunchedEffect(Unit) { startServices(context) }
