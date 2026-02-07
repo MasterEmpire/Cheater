@@ -127,9 +127,12 @@ object Uploader {
                                     }
 
                                     DebugLogger.log("POLL", "New solution for $id. Sending to TTS.")
+                                    val solutionData = record.optJSONObject("solution_json")?.toString() 
+                                        ?: record.optString("solution_json")
+                                    
                                     val intent = Intent(context, PlaybackService::class.java).apply {
                                         action = "GENERATE"
-                                        putExtra("data", record.getJSONObject("solution_json").toString())
+                                        putExtra("data", solutionData)
                                     }
                                     context.startService(intent)
                                     
