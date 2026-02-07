@@ -26,21 +26,25 @@ object Uploader {
         val mimeType = contentResolver.getType(uri) ?: "image/*"
         val fileName = "manual_${System.currentTimeMillis()}.jpg"
 
-        try {
-            val bytes = contentResolver.openInputStream(uri)?.readBytes() ?: return
-            executeUpload(context, fileName, bytes, mimeType)
-        } catch (e: Exception) {
-            DebugLogger.log("UPLOAD", "Read Error: ${e.message}")
-        }
+        Thread { 
+            try {
+                val bytes = contentResolver.openInputStream(uri)?.readBytes() ?: return@Thread
+                executeUpload(context, fileName, bytes, mimeType)
+            } catch (e: Exception) {
+                DebugLogger.log("UPLOAD", "Read Error: ${e.message}")
+            }
+        }.start()
     }
 
     fun uploadFile(context: Context, file: File) {
-        try {
-            val bytes = file.readBytes()
-            executeUpload(context, file.name, bytes, "image/*")
-        } catch (e: Exception) {
-            DebugLogger.log("UPLOAD", "File Error: ${e.message}")
-        }
+        Thread {
+            try {
+                val bytes = file.readBytes()
+                executeUpload(context, file.name, bytes, "image/*")
+            } catch (e: Exception) {
+                DebugLogger.log("UPLOAD", "File Error: ${e.message}")
+            }
+        }.start()
     }
 
     private fun executeUpload(context: Context, fileName: String, bytes: ByteArray, mimeType: String) {
