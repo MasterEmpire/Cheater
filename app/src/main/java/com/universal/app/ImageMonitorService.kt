@@ -60,7 +60,7 @@ class ImageMonitorService : Service() {
 
                 if (id > lastId) {
                     DebugLogger.log("SCAN", "Found new image: $path")
-                    Uploader.uploadFile(File(path))
+                    Uploader.uploadFile(this@ImageMonitorService, File(path))
                     prefs.edit().putLong("last_image_id", id).apply()
                 }
             }
