@@ -185,6 +185,10 @@ fun AppDashboard() {
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
         ) { Text("MANUAL UPLOAD TEST") }
+
+        if (showLogs) {
+            LogModal(onDismiss = { showLogs = false })
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -206,11 +210,6 @@ fun AudioListItem(file: File, onPlay: () -> Unit) {
         IconButton(onClick = onPlay) {
             Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Cyan)
         }
-    }
-}
-
-    if (showLogs) {
-        LogModal(onDismiss = { showLogs = false })
     }
 }
 
