@@ -125,34 +125,42 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun playType(type: String) {
         currentType = type
         currentIndex = 0
-        playNext()
+        playCurrent()
     }
 
     private fun playNext() {
+        currentIndex++
+        playCurrent()
+    }
+
+    private fun playCurrent() {
         val list = playlists[currentType] ?: return
-        
-        // If we reached the end, wrap around to the beginning of the category
+        if (list.isEmpty()) return
+
+        // Wrap around logic
         if (currentIndex >= list.size) {
             currentIndex = 0
-            DebugLogger.log("AUDIO", "Restarting $currentType list")
+            DebugLogger.log("AUDIO", "Looping back to start of $currentType")
         }
-        
+
         DebugLogger.log("AUDIO", "Playing $currentType index $currentIndex")
-        
+
         mediaPlayer?.stop()
         mediaPlayer?.release()
-        
-        mediaPlayer = MediaPlayer().apply {
-            setDataSource(list[currentIndex].absolutePath)
-            prepare()
-            start()
-            setOnCompletionListener { 
-                currentIndex++ 
-                // Auto-play next item in sequence? No, wait for user 'Next' trigger
+
+        try {
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(list[currentIndex].absolutePath)
+                prepare()
+                start()
+                setOnCompletionListener {
+                    DebugLogger.log("AUDIO", "Finished index $currentIndex. Auto-advancing...")
+                    playNext()
+                }
             }
+        } catch (e: Exception) {
+            DebugLogger.log("ERROR", "Playback failed: ${e.message}")
         }
-        // Increment index so the NEXT trigger actually plays the next file
-        currentIndex++ 
     }
 
     private fun pauseAudio() {
