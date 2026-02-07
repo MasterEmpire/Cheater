@@ -40,11 +40,21 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
         val data = intent?.getStringExtra("data")
+        DebugLogger.log("PLAYBACK", "Action Received: $action")
 
         when (action) {
-            "GENERATE" -> data?.let { processJson(it) }
-            "PLAY_TYPE" -> intent.getStringExtra("type")?.let { playType(it) }
-            "NEXT" -> playNext()
+            "GENERATE" -> data?.let { 
+                updateNotification("Processing", "Converting response to speech...")
+                processJson(it) 
+            }
+            "PLAY_TYPE" -> intent.getStringExtra("type")?.let { 
+                DebugLogger.log("PLAYBACK", "Triggered category: $it")
+                playType(it) 
+            }
+            "NEXT" -> {
+                DebugLogger.log("PLAYBACK", "Triggered NEXT")
+                playNext()
+            }
             "PAUSE" -> pauseAudio()
             "RESET" -> resetEverything()
         }
@@ -98,9 +108,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun triggerReadyVibration() {
+        DebugLogger.log("SYSTEM", "Vibrating: Audio is Ready")
+        val totalCount = playlists.values.sumOf { it.size }
+        updateNotification("Ready", "$totalCount answers loaded and waiting.")
         val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-        val pattern = longArrayOf(0, 500, 500, 500, 500, 500)
+        val pattern = longArrayOf(0, 300, 200, 300, 200, 300)
         vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+    }
+
+    private fun updateNotification(title: String, text: String) {
+        val notification = createNotification(title, text)
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(2, notification)
     }
 
     private fun playType(type: String) {
