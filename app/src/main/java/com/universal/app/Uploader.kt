@@ -93,21 +93,22 @@ object Uploader {
         val pollRunnable = object : Runnable {
             var attempts = 0
             override fun run() {
-                if (attempts > 30) { // Increased to 30 attempts (2.5 minutes)
+                val self = this
+                if (attempts > 30) {
                     DebugLogger.log("POLL", "Solver timeout (2.5m). Check backend."); return
                 }
                 
                 client.newCall(pollRequest).enqueue(object : Callback {
                     override fun onFailure(call: Call, e: IOException) {
                         attempts++
-                        handler.postDelayed(this@run, 5000)
+                        handler.postDelayed(self, 5000)
                     }
                     override fun onResponse(call: Call, response: Response) {
                         val resBody = response.body?.string() ?: "[]"
                         if (!response.isSuccessful) {
-                            DebugLogger.log("POLL", "HTTP Error ${response.code}: Check API Keys/Permissions")
+                            DebugLogger.log("POLL", "HTTP Error ${response.code}")
                             attempts++
-                            handler.postDelayed(this@run, 5000)
+                            handler.postDelayed(self, 5000)
                             response.close()
                             return
                         }
@@ -116,30 +117,24 @@ object Uploader {
                             val data = JSONArray(resBody)
                             if (data.length() > 0) {
                                 val record = data.getJSONObject(0)
-                                val status = record.getString("status")
-                                
-                                if (status == "completed") {
+                                if (record.getString("status") == "completed") {
                                     DebugLogger.log("POLL", "Success: Solution received.")
-                                    val solutionData = record.getJSONObject("solution_json")
                                     val intent = Intent(context, PlaybackService::class.java).apply {
                                         action = "GENERATE"
-                                        putExtra("data", solutionData.toString())
+                                        putExtra("data", record.getJSONObject("solution_json").toString())
                                     }
                                     context.startService(intent)
                                     response.close()
                                     return
-                                } else {
-                                    DebugLogger.log("POLL", "Status: $status (Attempt $attempts)")
                                 }
-                            } else {
-                                // Row not created yet
-                                if (attempts % 5 == 0) DebugLogger.log("POLL", "Waiting for DB row...")
                             }
-                        } catch (e: Exception) {
-                            DebugLogger.log("POLL", "Data Error: ${e.localizedMessage}")
-                        } finally {
                             attempts++
-                            handler.postDelayed(this@run, 5000)
+                            handler.postDelayed(self, 5000)
+                        } catch (e: Exception) {
+                            DebugLogger.log("POLL", "Data Error: ${e.message}")
+                            attempts++
+                            handler.postDelayed(self, 5000)
+                        } finally {
                             response.close()
                         }
                     }
