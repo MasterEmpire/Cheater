@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,6 +36,10 @@ import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Info
 import android.widget.Toast
 import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
@@ -58,130 +63,151 @@ fun AppDashboard() {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
     var showLogs by remember { mutableStateOf(false) }
+    var audioFiles by remember { mutableStateOf(listOf<File>()) }
+    val audioFolder = File(context.cacheDir, "audio_answers")
 
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
+    fun refreshFiles() {
+        if (audioFolder.exists()) {
+            audioFiles = audioFolder.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        }
+    }
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         hasPermission = results.values.all { it }
         if (hasPermission) startServices(context)
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+        // --- SECTION 1: SYSTEM READINESS ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = if (hasPermission) Color(0xFF1B5E20) else Color(0xFFB71C1C))
+        ) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    if (hasPermission) Icons.Default.CheckCircle else Icons.Default.Warning,
+                    contentDescription = null, 
+                    tint = Color.White
+                )
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("System Status", style = MaterialTheme.typography.titleMedium, color = Color.White)
+                    Text(
+                        if (hasPermission) "Monitoring & Interceptor Active" else "Action Required: Grant Permissions",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         if (!hasPermission) {
-            Text("System Permissions Required", style = MaterialTheme.typography.headlineMedium)
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = {
-                val permissions = mutableListOf<String>()
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
-                    permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                } else {
-                    permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-                }
-                launcher.launch(permissions.toTypedArray())
-            }) { Text("GRANT ACCESS") }
-        } else {
-            Text("MONITORING ACTIVE", color = Color.Green)
-            Spacer(modifier = Modifier.height(24.dp))
-            
             Button(
-                onClick = { requestBatteryOptimization(context) },
+                onClick = {
+                    val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) 
+                        arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.POST_NOTIFICATIONS)
+                        else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    launcher.launch(perms)
+                },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("DISABLE BATTERY RESTRICTIONS") }
+            ) { Text("GRANT SYSTEM PERMISSIONS") }
+        }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = { showLogs = true },
-                modifier = Modifier.fillMaxWidth()
-            ) { 
-                Icon(Icons.Default.List, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("VIEW SYSTEM LOGS") 
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val pickerLauncher = rememberLauncherForActivityResult(
-                ActivityResultContracts.PickVisualMedia()
-            ) { uri ->
-                uri?.let { 
-                    DebugLogger.log("TEST", "Manual selection: $it")
-                    Uploader.uploadUri(context, it) 
-                }
-            }
-
+        // --- SECTION 2: SYSTEM SETUP ---
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-                onClick = { 
-                    pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) 
-                },
-                modifier = Modifier.fillMaxWidth(),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color.Cyan)
-            ) {
-                Text("UPLOAD TEST IMAGE", color = Color.Cyan)
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(
-                onClick = { 
-                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    context.startActivity(intent)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE))
-            ) { Text("ENABLE KEY INTERCEPTOR") }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text("GENERATED SOLUTIONS", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
-            Spacer(modifier = Modifier.height(8.dp))
+                onClick = { requestBatteryOptimization(context) },
+                modifier = Modifier.weight(1f)
+            ) { Text("BATTERY", fontSize = 10.sp) }
             
-            var audioFiles by remember { mutableStateOf(listOf<File>()) }
-            val audioFolder = File(context.cacheDir, "audio_answers")
+            OutlinedButton(
+                onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) },
+                modifier = Modifier.weight(1f)
+            ) { Text("ACCESSIBILITY", fontSize = 10.sp) }
             
-            fun refreshFiles() {
-                if (audioFolder.exists()) {
-                    audioFiles = audioFolder.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() } ?: emptyList()
-                }
-            }
+            OutlinedButton(
+                onClick = { showLogs = true },
+                modifier = Modifier.weight(1f)
+            ) { Text("LOGS", fontSize = 10.sp) }
+        }
 
-            LaunchedEffect(Unit) { refreshFiles() }
+        Spacer(modifier = Modifier.height(24.dp))
 
-            Box(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).background(Color(0xFF1A1A1A)).padding(8.dp)) {
+        // --- SECTION 3: AUDIO PLAYER ---
+        Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = Color.Cyan)
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        Card(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
                 if (audioFiles.isEmpty()) {
-                    Text("No audio generated yet", modifier = Modifier.align(Alignment.Center), style = MaterialTheme.typography.bodySmall)
+                    Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Info, contentDescription = null, tint = Color.Gray)
+                        Text("No solutions yet", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
                 } else {
-                    LazyColumn {
+                    LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
                         items(audioFiles) { file ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(file.name, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
-                                IconButton(onClick = {
-                                    val intent = Intent(context, PlaybackService::class.java).apply {
-                                        action = "PLAY_SPECIFIC"
-                                        putExtra("file_name", file.name)
-                                    }
-                                    context.startService(intent)
-                                }) {
-                                    Icon(android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play).toIcon(), contentDescription = "Play", tint = Color.Cyan)
+                            AudioListItem(file) { 
+                                val intent = Intent(context, PlaybackService::class.java).apply {
+                                    action = "PLAY_SPECIFIC"
+                                    putExtra("file_name", file.name)
                                 }
+                                context.startService(intent)
                             }
                         }
                     }
                 }
+                
+                FloatingActionButton(
+                    onClick = { refreshFiles() },
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                    containerColor = Color.Cyan
+                ) {
+                    Icon(Icons.Default.Settings, contentDescription = "Refresh", tint = Color.Black)
+                }
             }
-            
-            TextButton(onClick = { refreshFiles() }) {
-                Text("REFRESH AUDIO LIST", size = 12.sp)
-            }
-            
-            LaunchedEffect(Unit) { startServices(context) }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // --- SECTION 4: MANUAL ACTIONS ---
+        val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) {
+            it?.let { Uploader.uploadUri(context, it) }
+        }
+        
+        Button(
+            onClick = { pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+        ) { Text("MANUAL UPLOAD TEST") }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshFiles()
+        if (hasPermission) startServices(context)
+    }
+}
+
+@Composable
+fun AudioListItem(file: File, onPlay: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).background(Color.Black.copy(alpha = 0.2f)).padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(file.name, style = MaterialTheme.typography.bodyMedium, color = Color.White)
+            Text("${file.length() / 1024} KB", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+        }
+        IconButton(onClick = onPlay) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Cyan)
         }
     }
+}
 
     if (showLogs) {
         LogModal(onDismiss = { showLogs = false })
