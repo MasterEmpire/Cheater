@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import android.widget.Toast
+import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
@@ -114,6 +115,29 @@ fun AppDashboard() {
             ) {
                 Text("UPLOAD TEST IMAGE", color = Color.Cyan)
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { 
+                    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                    context.startActivity(intent)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE))
+            ) { Text("ENABLE KEY INTERCEPTOR") }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { 
+                    val intent = Intent(context, PlaybackService::class.java).apply { action = "PLAY_TYPE"; putExtra("type", "wo") }
+                    context.startService(intent)
+                    Toast.makeText(context, "Testing 'Workout' Playback...", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
+            ) { Text("PREVIEW GENERATED AUDIO") }
             
             LaunchedEffect(Unit) { startServices(context) }
         }
