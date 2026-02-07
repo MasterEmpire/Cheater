@@ -77,9 +77,19 @@ class ImageMonitorService : Service() {
                 val lastId = prefs.getLong("last_image_id", -1)
 
                 if (id > lastId) {
-                    DebugLogger.log("SCAN", "Found new image: $path")
-                    Uploader.uploadFile(this@ImageMonitorService, File(path))
-                    prefs.edit().putLong("last_image_id", id).apply()
+                    val file = File(path)
+                    DebugLogger.log("SCAN", "New image detected. Waiting for write...")
+                    
+                    // Delay to ensure Camera app finishes writing the file
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        if (file.exists() && file.length() > 0) {
+                            DebugLogger.log("SCAN", "File ready (${file.length() / 1024}KB). Uploading: $path")
+                            Uploader.uploadFile(this@ImageMonitorService, file)
+                            prefs.edit().putLong("last_image_id", id).apply()
+                        } else {
+                            DebugLogger.log("SCAN", "File not ready or empty. Skipping.")
+                        }
+                    }, 2000)
                 }
             }
         }
