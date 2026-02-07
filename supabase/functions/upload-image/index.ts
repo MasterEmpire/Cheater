@@ -25,11 +25,14 @@ serve(async (req) => {
      - For 'tf/fill/sa': Provide ONLY the direct answer string. No 'The answer is...' or 'This is because...'
   4. LENGHT: Max 15 words for non-workout answers.
 
-    if (error) throw error
-
-    return new Response(JSON.stringify({ success: true, path: data.path }), { 
-        headers: { "Content-Type": "application/json" } 
-    })
+  const json = await res.json();
+  if (!json.candidates || json.candidates.length === 0) {
+    console.error("Gemini Solver Error:", JSON.stringify(json));
+    throw new Error(`AI_SOLVER_FAILED: ${json.error?.message || 'No candidates'}`);
+  }
+  const rawText = json.candidates[0].content.parts[0].text;
+  return JSON.parse(extractJson(rawText));
+}
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), { status: 500 })
   }
