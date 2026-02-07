@@ -82,7 +82,7 @@ object Uploader {
         })
     }
 
-    private fun startPolling(context: Context, id: String) {
+    fun startPolling(context: Context, id: String) {
         val pollRequest = Request.Builder()
             .url("https://xvldfsmxskhemkslsbym.supabase.co/rest/v1/processed_images?id=eq.$id&select=status,solution_json")
             .addHeader("apikey", SUPABASE_KEY)
