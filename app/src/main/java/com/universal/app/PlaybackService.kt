@@ -60,6 +60,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 DebugLogger.log("PLAYBACK", "Triggered NEXT")
                 playNext()
             }
+            "PREVIOUS" -> {
+                DebugLogger.log("PLAYBACK", "Triggered PREVIOUS")
+                playPrevious()
+            }
             "PAUSE" -> pauseAudio()
             "RESET" -> resetEverything()
             "PLAY_SPECIFIC" -> {
@@ -185,6 +189,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         playCurrent()
     }
 
+    private fun playPrevious() {
+        currentIndex--
+        playCurrent()
+    }
+
     private fun playCurrent() {
         val list = playlists[currentType]
         
@@ -200,6 +209,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (currentIndex >= list.size) {
             currentIndex = 0
             DebugLogger.log("AUDIO", "Looping back to start of $currentType")
+        }
+        if (currentIndex < 0) {
+            currentIndex = list.size - 1
+            DebugLogger.log("AUDIO", "Looping to end of $currentType")
         }
 
         DebugLogger.log("AUDIO", "Playing $currentType index $currentIndex")
