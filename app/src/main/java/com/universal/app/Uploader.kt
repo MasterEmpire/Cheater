@@ -118,12 +118,24 @@ object Uploader {
                             if (data.length() > 0) {
                                 val record = data.getJSONObject(0)
                                 if (record.getString("status") == "completed") {
-                                    DebugLogger.log("POLL", "Success: Solution received.")
+                                    val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                                    val processedIds = prefs.getStringSet("processed_ids", mutableSetOf()) ?: mutableSetOf()
+                                    
+                                    if (processedIds.contains(id)) {
+                                        DebugLogger.log("POLL", "ID $id already processed. Skipping.")
+                                        response.close(); return
+                                    }
+
+                                    DebugLogger.log("POLL", "New solution for $id. Sending to TTS.")
                                     val intent = Intent(context, PlaybackService::class.java).apply {
                                         action = "GENERATE"
                                         putExtra("data", record.getJSONObject("solution_json").toString())
                                     }
                                     context.startService(intent)
+                                    
+                                    val newSet = processedIds.toMutableSet().apply { add(id) }
+                                    prefs.edit().putStringSet("processed_ids", newSet).apply()
+                                    
                                     response.close()
                                     return
                                 }
