@@ -13,10 +13,25 @@ class KeyInterceptService : AccessibilityService() {
     
     private val CLICK_GAP = 400L
 
+    private var isVolUpPressed = false
+    private var isVolDownPressed = false
+
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         val action = event.action
         val isLongPress = event.eventTime - event.downTime > 1000
+
+        if (action == KeyEvent.ACTION_DOWN) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = true
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
+
+            // BOTH KEYS PRESSED = PAUSE / LONG BOTH = RESET
+            if (isVolUpPressed && isVolDownPressed) {
+                val intent = Intent(this, PlaybackService::class.java)
+                intent.action = if (isLongPress) "RESET" else "PAUSE"
+                startService(intent)
+                return true
+            }
 
         if (action == KeyEvent.ACTION_DOWN) {
             when (keyCode) {
@@ -36,6 +51,9 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_UP) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = false
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = false
+
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
                     handlePress("UP", upCount, isLongPress)
