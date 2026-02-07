@@ -32,7 +32,17 @@ class ImageMonitorService : Service() {
         
         startForeground(1, notification)
         startMonitoring()
+        recoveryScan()
         return START_STICKY
+    }
+
+    private fun recoveryScan() {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val lastId = prefs.getLong("last_image_id", -1)
+        if (lastId != -1L) {
+            DebugLogger.log("RECOVERY", "Checking status of image ID: $lastId")
+            Uploader.startPolling(this, lastId.toString())
+        }
     }
 
     private var lastEventTime = 0L
