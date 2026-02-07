@@ -54,12 +54,61 @@ object Uploader {
             override fun onResponse(call: Call, response: Response) {
                 val body = response.body()?.string() ?: "Empty Body"
                 if (response.isSuccessful) {
-                    DebugLogger.log("UPLOAD", "SUCCESS: $fileName. Server: $body")
+                    DebugLogger.log("UPLOAD", "Stage 1 Complete. Waiting for Solver...")
+                    try {
+                        val json = org.json.JSONObject(body)
+                        val id = json.getString("id")
+                        startPolling(context, id)
+                    } catch (e: Exception) { 
+                        DebugLogger.log("ERROR", "Failed to parse ID: ${e.message}") 
+                    }
                 } else {
                     DebugLogger.log("UPLOAD", "SERVER ERROR ${response.code}: $body")
                 }
                 response.close()
             }
         })
+    }
+
+    private fun startPolling(context: Context, id: String) {
+        val pollRequest = Request.Builder()
+            .url("https://xvldfsmxskhemkslsbym.supabase.co/rest/v1/processed_images?id=eq.$id&select=status,solution_json")
+            .addHeader("apikey", SUPABASE_KEY)
+            .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+            .build()
+
+        val handler = android.os.Handler(android.os.Looper.getMainLooper())
+        val pollRunnable = object : Runnable {
+            var attempts = 0
+            override fun run() {
+                if (attempts > 20) { 
+                    DebugLogger.log("POLL", "Timed out waiting for solver."); return 
+                }
+                
+                client.newCall(pollRequest).enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {}
+                    override fun onResponse(call: Call, response: Response) {
+                        val resBody = response.body()?.string() ?: "[]"
+                        val data = org.json.JSONArray(resBody)
+                        if (data.length() > 0) {
+                            val record = data.getJSONObject(0)
+                            if (record.getString("status") == "completed") {
+                                DebugLogger.log("POLL", "Solution Ready! Generating TTS...")
+                                val intent = Intent(context, PlaybackService::class.java).apply {
+                                    action = "GENERATE"
+                                    putExtra("data", record.getJSONObject("solution_json").toString())
+                                }
+                                context.startService(intent)
+                                return
+                            }
+                        }
+                        attempts++
+                        handler.postDelayed(this@run, 5000)
+                        response.close()
+                    }
+                })
+            }
+        }
+        handler.post(pollRunnable)
     }
 }
