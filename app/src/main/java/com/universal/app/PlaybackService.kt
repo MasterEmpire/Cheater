@@ -83,12 +83,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
             val textToSpeak = StringBuilder(typeLabel)
             
-            if (item.has("steps") && !item.isNull("steps")) {
+            // Only process steps for 'workout' (wo) types to prevent AI explanations in other types
+            if (type == "wo" && item.has("steps") && !item.isNull("steps")) {
                 val steps = item.getJSONArray("steps")
                 for (j in 0 until steps.length()) {
                     textToSpeak.append("Step ${j + 1}. ").append(steps.getString(j)).append(".  . ")
                 }
             } else {
+                // For non-workout, prioritize the direct answer only
                 if (type == "mc") textToSpeak.append("The correct option is: ") 
                 else textToSpeak.append("The answer is: ")
                 textToSpeak.append(answer)
