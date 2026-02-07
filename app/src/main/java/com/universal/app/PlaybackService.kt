@@ -72,17 +72,21 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
             val file = File(audioFolder, "${type}_$number.wav")
             val params = Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "$type|$number") }
-            tts.synthesizeToFile(textToSpeak.toString(), params, file, "$type|$number")
+            val utteranceId = "$type|$number"
+            tts.synthesizeToFile(textToSpeak.toString(), params, file, utteranceId)
             
             val list = playlists.getOrDefault(type, mutableListOf()).toMutableList()
             list.add(file)
             playlists[type] = list
         }
+
+        val lastSolution = solutions.getJSONObject(solutions.length() - 1)
+        val targetId = "${lastSolution.optString("type", "sa")}|${lastSolution.getString("number")}"
         
         tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
-                 if (utteranceId == solutions.getJSONObject(solutions.length()-1).getString("number")) {
+                 if (utteranceId == targetId) {
                      triggerReadyVibration()
                  }
             }
