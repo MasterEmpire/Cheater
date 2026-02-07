@@ -24,8 +24,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 
 class MainActivity : ComponentActivity() {
@@ -121,6 +124,9 @@ fun AppDashboard() {
 
 @Composable
 fun LogModal(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Internal Trace") },
@@ -131,7 +137,20 @@ fun LogModal(onDismiss: () -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("CLOSE") } }
+        confirmButton = {
+            Row {
+                TextButton(onClick = {
+                    val fullLog = DebugLogger.getFullLog()
+                    clipboardManager.setText(AnnotatedString(fullLog))
+                    Toast.makeText(context, "Logs copied to clipboard", Toast.LENGTH_SHORT).show()
+                }) {
+                    Text("COPY ALL")
+                }
+                TextButton(onClick = onDismiss) {
+                    Text("CLOSE")
+                }
+            }
+        }
     )
 }
 
