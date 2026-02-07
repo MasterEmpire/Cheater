@@ -16,9 +16,14 @@ serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     const fileName = `${Date.now()}_${file.name}`
 
-    const { data, error } = await supabase.storage
-      .from('images')
-      .upload(fileName, file)
+  PHONETIC RULES:
+  1. NO SYMBOLS: Replace symbols with words (e.g., 'x squared', 'square root').
+  2. STRICT NO-EXPLANATION: Do NOT provide reasons, justifications, or context for mc, tf, fill, ma, or sa. 
+  3. FORMATTING:
+     - For 'wo': Provide only solving steps. No intro/outro.
+     - For 'mc': Provide ONLY the letter and the exact text (e.g., 'Option B, Mitochondria').
+     - For 'tf/fill/sa': Provide ONLY the direct answer string. No 'The answer is...' or 'This is because...'
+  4. LENGHT: Max 15 words for non-workout answers.
 
     if (error) throw error
 
