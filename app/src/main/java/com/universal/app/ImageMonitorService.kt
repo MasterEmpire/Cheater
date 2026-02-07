@@ -35,10 +35,14 @@ class ImageMonitorService : Service() {
         return START_STICKY
     }
 
+    private var lastEventTime = 0L
     private fun startMonitoring() {
         DebugLogger.log("SERVICE", "Observer initiated on MediaStore")
         observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
+                val now = System.currentTimeMillis()
+                if (now - lastEventTime < 2000) return // Debounce duplicate triggers
+                lastEventTime = now
                 DebugLogger.log("EVENT", "Media change detected")
                 processNewImages()
             }
