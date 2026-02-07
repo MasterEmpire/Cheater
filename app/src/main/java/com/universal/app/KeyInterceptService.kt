@@ -82,6 +82,7 @@ class KeyInterceptService : AccessibilityService() {
         } else {
             when {
                 isLong -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "fill") }
+                count == 1 -> intent.apply { action = "PREVIOUS" }
                 count == 2 -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "mc") }
                 count == 3 -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "ma") }
                 else -> { /* No action */ }
