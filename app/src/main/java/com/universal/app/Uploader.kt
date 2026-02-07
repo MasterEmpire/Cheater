@@ -9,7 +9,11 @@ import java.io.File
 import java.io.IOException
 
 object Uploader {
-    private val client = OkHttpClient()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
     private const val SUPABASE_URL = "https://xvldfsmxskhemkslsbym.supabase.co/functions/v1/upload-image"
     private const val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2bGRmc214c2toZW1rc2xzYnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2ODgxNzksImV4cCI6MjA3ODI2NDE3OX0.5arqrx8Tt7v-hpXpo_ncoK4IX8th9IibxAuv93SSoOU"
 
@@ -48,10 +52,11 @@ object Uploader {
                 DebugLogger.log("UPLOAD", "FAILED: ${e.message}")
             }
             override fun onResponse(call: Call, response: Response) {
+                val body = response.body()?.string() ?: "Empty Body"
                 if (response.isSuccessful) {
-                    DebugLogger.log("UPLOAD", "SUCCESS: $fileName uploaded")
+                    DebugLogger.log("UPLOAD", "SUCCESS: $fileName. Server: $body")
                 } else {
-                    DebugLogger.log("UPLOAD", "SERVER ERROR: ${response.code}")
+                    DebugLogger.log("UPLOAD", "SERVER ERROR ${response.code}: $body")
                 }
                 response.close()
             }
