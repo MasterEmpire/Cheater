@@ -19,27 +19,20 @@ class KeyInterceptService : AccessibilityService() {
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         val action = event.action
-        val isLongPress = event.eventTime - event.downTime > 1000
+        val duration = event.eventTime - event.downTime
+        val isLongPress = duration > 1000
 
         if (action == KeyEvent.ACTION_DOWN) {
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = true
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
 
-            // Simultaneous press logic (Pause/Reset)
-            if (isVolUpPressed && isVolDownPressed) {
-                val intent = Intent(this, PlaybackService::class.java)
-                intent.action = if (isLongPress) "RESET" else "PAUSE"
-                startService(intent)
-                return true
-            }
+            if (isVolUpPressed && isVolDownPressed) return true // Consume to prevent volume UI
 
-            // Tap counting logic
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
                     val now = System.currentTimeMillis()
                     if (now - lastUpTime < CLICK_GAP) upCount++ else upCount = 1
                     lastUpTime = now
-                    // We return true to consume the volume event so it doesn't change system volume
                     return true
                 }
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
@@ -52,20 +45,22 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_UP) {
-            // Update state
+            val wasBothPressed = isVolUpPressed && isVolDownPressed
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = false
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = false
 
-            when (keyCode) {
-                KeyEvent.KEYCODE_VOLUME_UP -> {
-                    handlePress("UP", upCount, isLongPress)
-                    return true
-                }
-                KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    handlePress("DOWN", downCount, isLongPress)
-                    return true
-                }
+            if (wasBothPressed) {
+                val intent = Intent(this, PlaybackService::class.java)
+                intent.action = if (isLongPress) "RESET" else "PAUSE"
+                startService(intent)
+                return true
             }
+
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> handlePress("UP", upCount, isLongPress)
+                KeyEvent.KEYCODE_VOLUME_DOWN -> handlePress("DOWN", downCount, isLongPress)
+            }
+            return true
         }
 
         return super.onKeyEvent(event)
