@@ -142,7 +142,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 val steps = item.optJSONArray("steps")
                 if (steps != null && steps.length() > 0) {
                     for (j in 0 until steps.length()) {
-                        textToSpeak.append("Step ${j + 1}. ").append(steps.optString(j)).append(".  . ")
+                        val rawStep = steps.optString(j)
+                        // Transformation: Convert [write: xyz] into audible ", write: xyz"
+                        val audibleStep = rawStep
+                            .replace("[write:", ", write: ")
+                            .replace("]", "")
+                        
+                        textToSpeak.append("Step ${j + 1}. ").append(audibleStep).append(". ")
                     }
                 } else {
                     textToSpeak.append("The result is ").append(answerText.ifEmpty { "unknown" })
