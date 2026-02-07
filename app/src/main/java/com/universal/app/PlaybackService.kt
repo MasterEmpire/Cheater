@@ -72,21 +72,35 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val number = item.getString("number")
             val answer = item.getString("answer")
             
-            val textToSpeak = StringBuilder("Question $number... ")
+            val typeLabel = when(type) {
+                "mc" -> "Multiple choice question $number. "
+                "tf" -> "True or false question $number. "
+                "ma" -> "Matching question $number. "
+                "fill" -> "Fill in the blank question $number. "
+                "wo" -> "Problem $number. "
+                else -> "Question $number. "
+            }
+
+            val textToSpeak = StringBuilder(typeLabel)
+            
             if (item.has("steps") && !item.isNull("steps")) {
                 val steps = item.getJSONArray("steps")
                 for (j in 0 until steps.length()) {
-                    textToSpeak.append("Step ${j + 1}: ")
-                    textToSpeak.append(steps.getString(j)).append(". .. ") // Triple dots add natural pauses
+                    textToSpeak.append("Step ${j + 1}. ").append(steps.getString(j)).append(".  . ")
                 }
             } else {
-                textToSpeak.append("The answer is: $answer")
+                if (type == "mc") textToSpeak.append("The correct option is: ") 
+                else textToSpeak.append("The answer is: ")
+                textToSpeak.append(answer)
             }
+
+            val finalSpeech = textToSpeak.toString()
+            DebugLogger.log("TTS_GEN", "ID $number ($type): $finalSpeech")
 
             val file = File(audioFolder, "${type}_$number.wav")
             val params = Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "$type|$number") }
             val utteranceId = "$type|$number"
-            tts.synthesizeToFile(textToSpeak.toString(), params, file, utteranceId)
+            tts.synthesizeToFile(finalSpeech, params, file, utteranceId)
             
             val list = playlists.getOrDefault(type, mutableListOf()).toMutableList()
             list.add(file)
