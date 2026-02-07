@@ -20,7 +20,6 @@ class ImageMonitorService : Service() {
     private val SUPABASE_URL = "https://xvldfsmxskhemkslsbym.supabase.co/functions/v1/upload-image"
     private val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2bGRmc214c2toZW1rc2xzYnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2ODgxNzksImV4cCI6MjA3ODI2NDE3OX0.5arqrx8Tt7v-hpXpo_ncoK4IX8th9IibxAuv93SSoOU"
     
-    private val client = OkHttpClient()
     private lateinit var observer: ContentObserver
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,39 +60,14 @@ class ImageMonitorService : Service() {
 
                 if (id > lastId) {
                     DebugLogger.log("SCAN", "Found new image: $path")
-                    uploadToSupabase(File(path))
+                    Uploader.uploadFile(File(path))
                     prefs.edit().putLong("last_image_id", id).apply()
                 }
             }
         }
     }
 
-    private fun uploadToSupabase(file: File) {
-        val requestBody = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.asRequestBody("image/*".toMediaTypeOrNull()))
-            .build()
 
-        val request = Request.Builder()
-            .url(SUPABASE_URL)
-            .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-            .post(requestBody)
-            .build()
-
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: java.io.IOException) {
-                DebugLogger.log("UPLOAD", "FAILED: ${e.message}")
-            }
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    DebugLogger.log("UPLOAD", "SUCCESS: ${file.name} sent to cloud")
-                } else {
-                    DebugLogger.log("UPLOAD", "SERVER ERROR: ${response.code}")
-                }
-                response.close()
-            }
-        })
-    }
 
     private fun createNotificationChannel() {
         val serviceChannel = NotificationChannel(CHANNEL_ID, "Monitor Service", NotificationManager.IMPORTANCE_LOW)
