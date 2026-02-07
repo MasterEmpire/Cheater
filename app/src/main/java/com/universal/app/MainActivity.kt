@@ -1,6 +1,8 @@
 package com.universal.app
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -174,10 +176,10 @@ private fun requestBatteryOptimization(context: Context) {
     context.startActivity(intent)
 }
 
-private fun createNotificationChannels() {
+private fun MainActivity.createNotificationChannels() {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val channel = NotificationChannel("PlaybackChannel", "Solutions Playback", NotificationManager.IMPORTANCE_LOW)
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
     }
 }
