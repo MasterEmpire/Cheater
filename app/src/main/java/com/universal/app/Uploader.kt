@@ -104,26 +104,42 @@ object Uploader {
                     }
                     override fun onResponse(call: Call, response: Response) {
                         val resBody = response.body?.string() ?: "[]"
+                        if (!response.isSuccessful) {
+                            DebugLogger.log("POLL", "HTTP Error ${response.code}: Check API Keys/Permissions")
+                            attempts++
+                            handler.postDelayed(this@run, 5000)
+                            response.close()
+                            return
+                        }
+
                         try {
                             val data = JSONArray(resBody)
                             if (data.length() > 0) {
                                 val record = data.getJSONObject(0)
-                                if (record.getString("status") == "completed") {
-                                    DebugLogger.log("POLL", "Solution Ready. Sending to Playback.")
+                                val status = record.getString("status")
+                                
+                                if (status == "completed") {
+                                    DebugLogger.log("POLL", "Success: Solution received.")
+                                    val solutionData = record.getJSONObject("solution_json")
                                     val intent = Intent(context, PlaybackService::class.java).apply {
                                         action = "GENERATE"
-                                        putExtra("data", record.getJSONObject("solution_json").toString())
+                                        putExtra("data", solutionData.toString())
                                     }
                                     context.startService(intent)
+                                    response.close()
                                     return
+                                } else {
+                                    DebugLogger.log("POLL", "Status: $status (Attempt $attempts)")
                                 }
+                            } else {
+                                // Row not created yet
+                                if (attempts % 5 == 0) DebugLogger.log("POLL", "Waiting for DB row...")
                             }
-                            attempts++
-                            handler.postDelayed(this@run, 5000)
                         } catch (e: Exception) {
+                            DebugLogger.log("POLL", "Data Error: ${e.localizedMessage}")
+                        } finally {
                             attempts++
                             handler.postDelayed(this@run, 5000)
-                        } finally {
                             response.close()
                         }
                     }
