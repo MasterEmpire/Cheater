@@ -186,8 +186,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playCurrent() {
-        val list = playlists[currentType] ?: return
-        if (list.isEmpty()) return
+        val list = playlists[currentType]
+        
+        if (list == null || list.isEmpty()) {
+            DebugLogger.log("AUDIO", "Attempted to play empty category: $currentType")
+            if (isReady) {
+                tts.speak("There is no available answer for that category", TextToSpeech.QUEUE_FLUSH, null, "EMPTY_NOTICE")
+            }
+            return
+        }
 
         // Wrap around logic
         if (currentIndex >= list.size) {
