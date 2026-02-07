@@ -30,6 +30,11 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import android.widget.Toast
 import android.view.accessibility.AccessibilityManager
 import androidx.core.content.ContextCompat
@@ -129,15 +134,50 @@ fun AppDashboard() {
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Button(
-                onClick = { 
-                    val intent = Intent(context, PlaybackService::class.java).apply { action = "PLAY_TYPE"; putExtra("type", "wo") }
-                    context.startService(intent)
-                    Toast.makeText(context, "Testing 'Workout' Playback...", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)
-            ) { Text("PREVIEW GENERATED AUDIO") }
+            Text("GENERATED SOLUTIONS", style = MaterialTheme.typography.labelLarge, color = Color.Gray)
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            var audioFiles by remember { mutableStateOf(listOf<File>()) }
+            val audioFolder = File(context.cacheDir, "audio_answers")
+            
+            fun refreshFiles() {
+                if (audioFolder.exists()) {
+                    audioFiles = audioFolder.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() } ?: emptyList()
+                }
+            }
+
+            LaunchedEffect(Unit) { refreshFiles() }
+
+            Box(modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).background(Color(0xFF1A1A1A)).padding(8.dp)) {
+                if (audioFiles.isEmpty()) {
+                    Text("No audio generated yet", modifier = Modifier.align(Alignment.Center), style = MaterialTheme.typography.bodySmall)
+                } else {
+                    LazyColumn {
+                        items(audioFiles) { file ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(file.name, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                                IconButton(onClick = {
+                                    val intent = Intent(context, PlaybackService::class.java).apply {
+                                        action = "PLAY_SPECIFIC"
+                                        putExtra("file_name", file.name)
+                                    }
+                                    context.startService(intent)
+                                }) {
+                                    Icon(android.graphics.drawable.Icon.createWithResource(context, android.R.drawable.ic_media_play).toIcon(), contentDescription = "Play", tint = Color.Cyan)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            TextButton(onClick = { refreshFiles() }) {
+                Text("REFRESH AUDIO LIST", size = 12.sp)
+            }
             
             LaunchedEffect(Unit) { startServices(context) }
         }
