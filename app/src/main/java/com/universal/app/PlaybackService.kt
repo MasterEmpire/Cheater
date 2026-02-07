@@ -25,7 +25,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         super.onCreate()
         tts = TextToSpeech(this, this)
         if (!audioFolder.exists()) audioFolder.mkdirs()
-        startForeground(2, createNotification("TTS Ready", "Waiting for content..."))
+        val notification = createNotification("TTS Ready", "Waiting for content...")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            startForeground(2, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(2, notification)
+        }
     }
 
     override fun onInit(status: Int) {
@@ -62,8 +67,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun processJson(jsonStr: String) {
-        val root = JSONObject(jsonStr)
-        val solutions = root.getJSONArray("solutions")
+        if (!isReady) {
+            DebugLogger.log("ERROR", "TTS not ready yet. Retrying in 2s...")
+            Handler(Looper.getMainLooper()).postDelayed({ processJson(jsonStr) }, 2000)
+            return
+        }
+        
+        val root = try { JSONObject(jsonStr) } catch (e: Exception) { 
+            DebugLogger.log("ERROR", "Invalid JSON: ${e.message}")
+            return 
+        }
+        val solutions = root.optJSONArray("solutions") ?: return
         playlists.clear()
 
         for (i in 0 until solutions.length()) {
@@ -161,8 +175,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
         DebugLogger.log("AUDIO", "Playing $currentType index $currentIndex")
 
-        mediaPlayer?.stop()
-        mediaPlayer?.release()
+        try {
+            if (mediaPlayer?.isPlaying == true) mediaPlayer?.stop()
+            mediaPlayer?.reset()
+            mediaPlayer?.release()
+            mediaPlayer = null
+        } catch (e: Exception) {
+            DebugLogger.log("DEBUG", "Media release swallowed: ${e.message}")
+        }
 
         try {
             mediaPlayer = MediaPlayer().apply {
