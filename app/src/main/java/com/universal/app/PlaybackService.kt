@@ -112,6 +112,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val number = item.getString("number")
             val answer = item.getString("answer")
             
+            // 1. Log Raw Input for Debugging
+            DebugLogger.log("RAW_JSON", "Item $number: $item")
+
             val typeLabel = when(type) {
                 "mc" -> "Multiple choice question $number. "
                 "tf" -> "True or false question $number. "
@@ -123,21 +126,35 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
             val textToSpeak = StringBuilder(typeLabel)
             
-            // Only process steps for 'workout' (wo) types to prevent AI explanations in other types
-            if (type == "wo" && item.has("steps") && !item.isNull("steps")) {
-                val steps = item.getJSONArray("steps")
-                for (j in 0 until steps.length()) {
-                    textToSpeak.append("Step ${j + 1}. ").append(steps.getString(j)).append(".  . ")
+            // 2. Extract answer with heavy fallbacks
+            var answerText = item.optString("answer", "").trim()
+            
+            // Fallback: If answer is empty but steps exist (AI error), use first step
+            if (answerText.isEmpty() && item.has("steps")) {
+                val fallbackSteps = item.optJSONArray("steps")
+                if (fallbackSteps != null && fallbackSteps.length() > 0) {
+                    answerText = fallbackSteps.optString(0, "")
+                    DebugLogger.log("WARN", "Using step as fallback for $number")
+                }
+            }
+
+            if (type == "wo") {
+                val steps = item.optJSONArray("steps")
+                if (steps != null && steps.length() > 0) {
+                    for (j in 0 until steps.length()) {
+                        textToSpeak.append("Step ${j + 1}. ").append(steps.optString(j)).append(".  . ")
+                    }
+                } else {
+                    textToSpeak.append("The result is ").append(answerText.ifEmpty { "unknown" })
                 }
             } else {
-                // For non-workout, prioritize the direct answer only
-                if (type == "mc") textToSpeak.append("The correct option is: ") 
-                else textToSpeak.append("The answer is: ")
-                textToSpeak.append(answer)
+                val prefix = if (type == "mc") "The correct option is: " else "The answer is: "
+                textToSpeak.append(prefix).append(answerText.ifEmpty { "not provided by solver" })
             }
 
             val finalSpeech = textToSpeak.toString()
-            DebugLogger.log("TTS_GEN", "ID $number ($type): $finalSpeech")
+            // 3. Log the Final Result - This is exactly what is sent to the TTS engine
+            DebugLogger.log("TTS_AUDIT", "Final speech string: \"$finalSpeech\"")
 
             val file = File(audioFolder, "${type}_$number.wav")
             val params = Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "$type|$number") }
