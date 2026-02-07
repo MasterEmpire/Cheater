@@ -31,6 +31,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.US
+            tts.setSpeechRate(0.9f) // Slightly slower for better comprehension
+            tts.setPitch(1.0f)
             isReady = true
         }
     }
@@ -60,14 +62,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val number = item.getString("number")
             val answer = item.getString("answer")
             
-            val textToSpeak = StringBuilder("Question number $number. ")
+            val textToSpeak = StringBuilder("Question $number... ")
             if (item.has("steps") && !item.isNull("steps")) {
                 val steps = item.getJSONArray("steps")
                 for (j in 0 until steps.length()) {
-                    textToSpeak.append(steps.getString(j)).append(". ")
+                    textToSpeak.append("Step ${j + 1}: ")
+                    textToSpeak.append(steps.getString(j)).append(". .. ") // Triple dots add natural pauses
                 }
             } else {
-                textToSpeak.append("The answer is $answer")
+                textToSpeak.append("The answer is: $answer")
             }
 
             val file = File(audioFolder, "${type}_$number.wav")
@@ -108,18 +111,29 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playNext() {
         val list = playlists[currentType] ?: return
+        
+        // If we reached the end, wrap around to the beginning of the category
         if (currentIndex >= list.size) {
-            DebugLogger.log("AUDIO", "End of $currentType list")
-            return
+            currentIndex = 0
+            DebugLogger.log("AUDIO", "Restarting $currentType list")
         }
         
+        DebugLogger.log("AUDIO", "Playing $currentType index $currentIndex")
+        
+        mediaPlayer?.stop()
         mediaPlayer?.release()
+        
         mediaPlayer = MediaPlayer().apply {
             setDataSource(list[currentIndex].absolutePath)
             prepare()
             start()
-            setOnCompletionListener { currentIndex++ }
+            setOnCompletionListener { 
+                currentIndex++ 
+                // Auto-play next item in sequence? No, wait for user 'Next' trigger
+            }
         }
+        // Increment index so the NEXT trigger actually plays the next file
+        currentIndex++ 
     }
 
     private fun pauseAudio() {
