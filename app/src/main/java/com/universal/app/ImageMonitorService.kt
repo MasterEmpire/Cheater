@@ -30,7 +30,11 @@ class ImageMonitorService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
         
-        startForeground(1, notification)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(1, notification)
+        }
         startMonitoring()
         recoveryScan()
         return START_STICKY
