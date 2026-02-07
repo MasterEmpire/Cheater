@@ -23,10 +23,12 @@ class KeyInterceptService : AccessibilityService() {
         val isLongPress = duration > 1000
 
         if (action == KeyEvent.ACTION_DOWN) {
+            if (event.repeatCount > 0) return true // Ignore auto-repeat when holding button
+
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = true
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
 
-            if (isVolUpPressed && isVolDownPressed) return true // Consume to prevent volume UI
+            if (isVolUpPressed && isVolDownPressed) return true
 
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
