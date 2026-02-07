@@ -60,12 +60,14 @@ fun AppDashboard() {
             Text("System Permissions Required", style = MaterialTheme.typography.headlineMedium)
             Spacer(modifier = Modifier.height(16.dp))
             Button(onClick = {
-                val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                val permissions = mutableListOf<String>()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    permissions.add(Manifest.permission.READ_MEDIA_IMAGES)
+                    permissions.add(Manifest.permission.POST_NOTIFICATIONS)
                 } else {
-                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    permissions.add(Manifest.permission.READ_EXTERNAL_STORAGE)
                 }
-                launcher.launch(permissions)
+                launcher.launch(permissions.toTypedArray())
             }) { Text("GRANT ACCESS") }
         } else {
             Text("MONITORING ACTIVE", color = Color.Green)
