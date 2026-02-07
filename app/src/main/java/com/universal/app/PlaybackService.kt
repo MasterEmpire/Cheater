@@ -62,8 +62,30 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             }
             "PAUSE" -> pauseAudio()
             "RESET" -> resetEverything()
+            "PLAY_SPECIFIC" -> {
+                val fileName = intent.getStringExtra("file_name")
+                if (fileName != null) playSpecificFile(fileName)
+            }
         }
         return START_STICKY
+    }
+
+    private fun playSpecificFile(fileName: String) {
+        val file = File(audioFolder, fileName)
+        if (!file.exists()) return
+
+        try {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(file.absolutePath)
+                prepare()
+                start()
+            }
+            updateNotification("Playing Preview", fileName)
+        } catch (e: Exception) {
+            DebugLogger.log("ERROR", "Specific play failed: ${e.message}")
+        }
     }
 
     private fun processJson(jsonStr: String) {
