@@ -334,8 +334,8 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
 
-        val root = rootInActiveWindow
-        val pkg = root?.packageName?.toString() ?: ""
+        val rootInfo = rootInActiveWindow
+        val pkg = rootInfo?.packageName?.toString() ?: ""
         val isCamera = pkg.contains("camera") || pkg.contains("lens")
 
         if (foundNode != null) {
