@@ -160,8 +160,14 @@ class KeyInterceptService : AccessibilityService() {
         val gesture = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(stroke1).addStroke(stroke2).build()
         
-        dispatchGesture(gesture, null, null)
-        DebugLogger.log("AUTO", "Wide-lens pinch triggered")
+        dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                DebugLogger.log("GESTURE", "Pinch SUCCESS")
+            }
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                DebugLogger.log("GESTURE", "Pinch FAILED: Cancelled by OS")
+            }
+        }, null)
     }
 
     private fun smartShutterClick() {
@@ -182,7 +188,9 @@ class KeyInterceptService : AccessibilityService() {
                 
                 // DebugLogger.log("SCAN", "Node: $id / $desc") // Uncomment for verbose scan
 
-                if (targets.any { id.contains(it) || desc.contains(it) }) {
+                val isMatch = targets.any { id.contains(it) || desc.contains(it) }
+                if (isMatch) {
+                    DebugLogger.log("SCAN", "Match Found: ID=$id Desc=$desc Clickable=${node.isClickable}")
                     if (node.isClickable) {
                         foundNode = node
                         break
@@ -213,7 +221,14 @@ class KeyInterceptService : AccessibilityService() {
             .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(clickPath, 0, 50))
             .build()
         
-        dispatchGesture(gesture, null, null)
+        dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
+            }
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                DebugLogger.log("COORD_CLICK", "Point Click FAILED at $x, $y")
+            }
+        }, null)
     }
 
     private fun logUiHierarchy() {
