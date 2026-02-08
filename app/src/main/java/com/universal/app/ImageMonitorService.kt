@@ -66,8 +66,11 @@ class ImageMonitorService : Service() {
         DebugLogger.log("SERVICE", "Observer initiated on MediaStore")
         observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
+                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                if (!prefs.getBoolean("is_active", false)) return
+
                 val now = System.currentTimeMillis()
-                if (now - lastEventTime < 2000) return // Debounce duplicate triggers
+                if (now - lastEventTime < 2000) return
                 lastEventTime = now
                 DebugLogger.log("EVENT", "Media change detected")
                 processNewImages()
