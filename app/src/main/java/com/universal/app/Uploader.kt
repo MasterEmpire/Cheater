@@ -23,7 +23,9 @@ object Uploader {
 
     fun uploadUri(context: Context, uri: Uri) {
         val contentResolver = context.contentResolver
-        val mimeType = contentResolver.getType(uri) ?: "image/*"
+        // Get actual MIME type from ContentResolver, fallback to image/jpeg
+        val detectedMime = contentResolver.getType(uri)
+        val mimeType = if (detectedMime == null || detectedMime == "image/*") "image/jpeg" else detectedMime
         val fileName = "manual_${System.currentTimeMillis()}.jpg"
 
         Thread { 
@@ -40,7 +42,11 @@ object Uploader {
         Thread {
             try {
                 val bytes = file.readBytes()
-                executeUpload(context, file.name, bytes, "image/*")
+                // Determine specific MIME type based on extension, default to image/jpeg for Gemini compatibility
+                val extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(file.absolutePath)
+                val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
+                
+                executeUpload(context, file.name, bytes, mimeType)
             } catch (e: Exception) {
                 DebugLogger.log("UPLOAD", "File Error: ${e.message}")
             }
