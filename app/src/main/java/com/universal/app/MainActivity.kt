@@ -63,6 +63,8 @@ fun AppDashboard() {
     val context = LocalContext.current
     var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
     var showLogs by remember { mutableStateOf(false) }
+    val prefs = remember { context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE) }
+    var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", false)) }
     var audioFiles by remember { mutableStateOf(listOf<File>()) }
     val audioFolder = File(context.cacheDir, "audio_answers")
 
@@ -80,15 +82,38 @@ fun AppDashboard() {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = if (hasPermission) Color(0xFF1B5E20) else Color(0xFFB71C1C))
+            colors = CardDefaults.cardColors(
+                containerColor = if (!hasPermission) Color(0xFFB71C1C) 
+                                 else if (isSystemActive) Color(0xFF1B5E20) 
+                                 else Color(0xFF37474F)
+            )
         ) {
             Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(if (hasPermission) Icons.Default.CheckCircle else Icons.Default.Warning, contentDescription = null, tint = Color.White)
                 Spacer(Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text("System Status", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                    Text(if (hasPermission) "Monitoring & Interceptor Active" else "Action Required: Grant Permissions", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
+                    Text(
+                        text = if (!hasPermission) "Action Required: Permissions" 
+                               else if (isSystemActive) "ACTIVE: Monitoring & Keys" 
+                               else "STANDBY: Logic Suspended",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
                 }
+                Switch(
+                    checked = isSystemActive,
+                    onCheckedChange = { 
+                        isSystemActive = it
+                        prefs.edit().putBoolean("is_active", it).apply()
+                        if (!it) {
+                            // Immediate stop command
+                            val intent = Intent(context, PlaybackService::class.java).apply { action = "RESET" }
+                            context.startService(intent)
+                        }
+                        if (it && hasPermission) startServices(context)
+                    }
+                )
             }
         }
 
