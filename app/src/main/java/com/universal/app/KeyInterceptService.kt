@@ -47,16 +47,23 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_UP) {
-            // ONLY launch camera on NEXT signal (Double Click)
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
                 val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
                 if (!prefs.getBoolean("is_active", false)) return false
 
-                DebugLogger.log("KEYS", "Double-click detected, launching wide camera")
-                val intent = Intent(this, CameraActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                val now = System.currentTimeMillis()
+                if (now - lastUpTime < 500) {
+                    // Double click: Open System Camera & Prepare Wide
+                    val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ prepareWideLens() }, 1500)
+                    lastUpTime = 0 // Reset
+                } else {
+                    // Single click: Shutter
+                    clickShutter()
+                    lastUpTime = now
                 }
-                startActivity(intent)
                 return true
             }
 
@@ -105,6 +112,39 @@ class KeyInterceptService : AccessibilityService() {
         if (intent.action != null) {
             startService(intent)
         }
+    }
+
+    private fun prepareWideLens() {
+        val metrics = resources.displayMetrics
+        val centerX = metrics.widthPixels / 2f
+        val centerY = metrics.heightPixels / 2f
+        
+        // Gesture: Two fingers moving apart from center
+        val path1 = android.graphics.Path().apply { moveTo(centerX - 20, centerY); lineTo(centerX - 300, centerY) }
+        val path2 = android.graphics.Path().apply { moveTo(centerX + 20, centerY); lineTo(centerX + 300, centerY) }
+        
+        val stroke1 = android.accessibilityservice.GestureDescription.StrokeDescription(path1, 0, 400)
+        val stroke2 = android.accessibilityservice.GestureDescription.StrokeDescription(path2, 0, 400)
+        
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(stroke1).addStroke(stroke2).build()
+        
+        dispatchGesture(gesture, null, null)
+        DebugLogger.log("AUTO", "Pinch-out triggered")
+    }
+
+    private fun clickShutter() {
+        val metrics = resources.displayMetrics
+        val x = metrics.widthPixels / 2f
+        val y = metrics.heightPixels - 200f // Common shutter location
+
+        val clickPath = android.graphics.Path().apply { moveTo(x, y) }
+        val gesture = android.accessibilityservice.GestureDescription.Builder()
+            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(clickPath, 0, 50))
+            .build()
+        
+        dispatchGesture(gesture, null, null)
+        DebugLogger.log("AUTO", "Shutter tap at $x, $y")
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
