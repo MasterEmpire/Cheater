@@ -237,6 +237,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun playNext() {
         val type = currentType ?: return
         val list = playlists[type] ?: return
+        DebugLogger.log("NAV", "Next: CurrentIdx=$currentIndex ListSize=${list.size}")
         
         if (currentIndex >= list.size - 1) {
             stopAllPlayback()
