@@ -97,12 +97,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             var processedCount = 0
             val totalToProcess = solutions.length()
 
+            val batchId = System.currentTimeMillis()
             for (i in 0 until solutions.length()) {
                 val item = solutions.optJSONObject(i) ?: continue
                 val type = item.optString("type", "sa")
-                val number = item.optString("number", i.toString())
+                // Pad number for correct sorting (1 -> 001)
+                val rawNum = item.optString("number", i.toString())
+                val number = rawNum.padStart(3, '0')
                 val text = item.optString("answer", "").ifEmpty { item.optJSONArray("steps")?.optString(0, "") ?: "" }
-                
+
                 val typeName = when(type) {
                     "wo" -> "Worked out solution"
                     "tf" -> "True or False question"
@@ -113,28 +116,35 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     else -> "Question"
                 }
                 
-                val speech = "$typeName number $number. Answer: $text"
-                val file = File(audioFolder, "${type}_$number.wav")
-                val utteranceId = "$type|$number"
+                val speech = "$typeName number $rawNum. Answer: $text"
+                // Naming convention: type_timestamp_number.wav
+                val fileName = "${type}_${batchId}_${number}.wav"
+                val file = File(audioFolder, fileName)
+                val utteranceId = fileName // Pass filename as ID for robust tracking in onDone
                 
-                // Just synthesize. Addition to playlist happens in onDone
                 tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
+            }
             }
 
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
                 override fun onDone(id: String?) {
-                    id?.let { 
-                        val parts = it.split("|")
-                        if (parts.size == 2) {
-                            val type = parts[0]
-                            val file = File(audioFolder, "${type}_${parts[1]}.wav")
-                            playlists.getOrPut(type) { mutableListOf() }.add(file)
+                    id?.let {
+                        // id is the filename (e.g., sa_12345678_001.wav)
+                        val type = it.split("_").firstOrNull()
+                        if (type != null) {
+                            val file = File(audioFolder, it)
+                            // Thread-safe addition
+                            synchronized(playlists) {
+                                playlists.getOrPut(type) { mutableListOf() }.add(file)
+                            }
                         }
                     }
                     processedCount++
                     if (processedCount >= totalToProcess) {
-                        playlists.values.forEach { it.sortBy { f -> f.name } }
+                        synchronized(playlists) {
+                            playlists.values.forEach { it.sortBy { f -> f.name } }
+                        }
                         triggerReadyVibration()
                     }
                 }
