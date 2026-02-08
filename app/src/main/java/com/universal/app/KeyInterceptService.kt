@@ -30,7 +30,6 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_DOWN) {
-        if (action == KeyEvent.ACTION_DOWN) {
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
                 isVolUpPressed = true
                 val now = System.currentTimeMillis()
@@ -40,17 +39,6 @@ class KeyInterceptService : AccessibilityService() {
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
 
             if (event.repeatCount > 0) return true
-
-            // Detect Long Press part of the Tap-Hold
-            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && event.repeatCount > 0 && isWaitingForTapHold) {
-                DebugLogger.log("GESTURE", "VolUp Tap-Hold detected")
-                toggleCamera()
-                isWaitingForTapHold = false
-                return true
-            }
-
-            if (event.repeatCount > 0) return true
-
             if (isVolUpPressed && isVolDownPressed) return true
 
             when (keyCode) {
