@@ -13,6 +13,7 @@ import java.util.*
 
 class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
     private var mediaPlayer: MediaPlayer? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private var isReady = false
@@ -23,6 +24,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     override fun onCreate() {
         super.onCreate()
+        
+        val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ScreenOffKeys")
+        wakeLock?.acquire(3 * 60 * 60 * 1000L) // Limit to 3 hours for safety
+        
         tts = TextToSpeech(this, this)
         if (!audioFolder.exists()) audioFolder.mkdirs()
         val notification = createNotification("TTS Ready", "Waiting for content...")
@@ -300,4 +306,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        if (wakeLock?.isHeld == true) wakeLock?.release()
+        super.onDestroy()
+    }
 }
