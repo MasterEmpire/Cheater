@@ -119,9 +119,9 @@ class KeyInterceptService : AccessibilityService() {
         val centerX = metrics.widthPixels / 2f
         val centerY = metrics.heightPixels / 2f
         
-        // Gesture: Two fingers moving apart from center
-        val path1 = android.graphics.Path().apply { moveTo(centerX - 20, centerY); lineTo(centerX - 300, centerY) }
-        val path2 = android.graphics.Path().apply { moveTo(centerX + 20, centerY); lineTo(centerX + 300, centerY) }
+        // Gesture: Pinch IN (Fingers moving from edges to center) to Zoom Out/Wide
+        val path1 = android.graphics.Path().apply { moveTo(centerX - 300, centerY); lineTo(centerX - 20, centerY) }
+        val path2 = android.graphics.Path().apply { moveTo(centerX + 300, centerY); lineTo(centerX + 20, centerY) }
         
         val stroke1 = android.accessibilityservice.GestureDescription.StrokeDescription(path1, 0, 400)
         val stroke2 = android.accessibilityservice.GestureDescription.StrokeDescription(path2, 0, 400)
@@ -130,7 +130,7 @@ class KeyInterceptService : AccessibilityService() {
             .addStroke(stroke1).addStroke(stroke2).build()
         
         dispatchGesture(gesture, null, null)
-        DebugLogger.log("AUTO", "Pinch-out triggered")
+        DebugLogger.log("AUTO", "Wide-lens pinch triggered")
     }
 
     private fun clickShutter() {
