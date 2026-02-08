@@ -101,8 +101,8 @@ class ImageMonitorService : Service() {
                     // Delay to ensure Camera app finishes writing the file
                     Handler(Looper.getMainLooper()).postDelayed({
                         if (file.exists() && file.length() > 0) {
-                            DebugLogger.log("SCAN", "File ready (${file.length() / 1024}KB). Uploading: $path")
-                            Uploader.uploadFile(this@ImageMonitorService, file)
+                            DebugLogger.log("SCAN", "File ready (${file.length() / 1024}KB). Enqueueing: $path")
+                            Uploader.enqueueFiles(this@ImageMonitorService, listOf(file))
                             prefs.edit().putLong("last_image_id", id).apply()
                         } else {
                             DebugLogger.log("SCAN", "File not ready or empty. Skipping.")
