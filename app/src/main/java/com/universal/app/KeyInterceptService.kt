@@ -176,7 +176,7 @@ class KeyInterceptService : AccessibilityService() {
         val gesture = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(stroke1).addStroke(stroke2).build()
         
-        dispatchGesture(gesture, object : GestureDescription.GestureResultCallback() {
+        dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription) {
                 DebugLogger.log("GESTURE", "Pinch SUCCESS")
             }
@@ -184,7 +184,6 @@ class KeyInterceptService : AccessibilityService() {
                 DebugLogger.log("GESTURE", "Pinch FAILED: Cancelled by OS")
             }
         }, null)
-    }
 
     private fun smartShutterClick() {
         logUiHierarchy() // Diagnose what we see
@@ -237,7 +236,7 @@ class KeyInterceptService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
             .build()
 
-        dispatchGesture(gesture, object : GestureDescription.GestureResultCallback() {
+        dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
             override fun onCompleted(gestureDescription: GestureDescription) {
                 DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
             }
