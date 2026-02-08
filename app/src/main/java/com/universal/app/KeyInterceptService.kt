@@ -161,28 +161,49 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens() {
-        logUiHierarchy() // Log UI right before pinching to see initial state
+        logUiHierarchy()
+        val root = rootInActiveWindow
+        var lensNode: android.view.accessibility.AccessibilityNodeInfo? = null
+
+        if (root != null) {
+            val queue = java.util.LinkedList<android.view.accessibility.AccessibilityNodeInfo>()
+            queue.add(root)
+            while (!queue.isEmpty()) {
+                val node = queue.poll() ?: continue
+                val text = node.text?.toString()?.lowercase() ?: ""
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                
+                // Specifically targeting the .5 button seen in screenshot
+                if (text.contains(".5") || text.contains("0.5") || desc.contains(".5") || desc.contains("0.5")) {
+                    lensNode = node
+                    break
+                }
+                for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
+            }
+        }
+
+        if (lensNode != null) {
+            DebugLogger.log("LENS", "Found 0.5x button. Clicking...")
+            lensNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+        } else {
+            DebugLogger.log("LENS", "0.5x button not found. Falling back to pinch.")
+            performPinchFallback()
+        }
+    }
+
+    private fun performPinchFallback() {
         val metrics = resources.displayMetrics
         val centerX = metrics.widthPixels / 2f
         val centerY = metrics.heightPixels / 2f
-        
-        // Gesture: Diagonal Pinch (Upper corners to center) to avoid bottom UI buttons
         val path1 = android.graphics.Path().apply { moveTo(100f, 100f); lineTo(centerX - 50, centerY - 50) }
         val path2 = android.graphics.Path().apply { moveTo(metrics.widthPixels - 100f, 100f); lineTo(centerX + 50, centerY - 50) }
-        
-        val stroke1 = android.accessibilityservice.GestureDescription.StrokeDescription(path1, 0, 500)
-        val stroke2 = android.accessibilityservice.GestureDescription.StrokeDescription(path2, 0, 500)
-        
-        val gesture = android.accessibilityservice.GestureDescription.Builder()
-            .addStroke(stroke1).addStroke(stroke2).build()
+        val stroke1 = GestureDescription.StrokeDescription(path1, 0, 500)
+        val stroke2 = GestureDescription.StrokeDescription(path2, 0, 500)
+        val gesture = GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
         
         dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: GestureDescription) {
-                DebugLogger.log("GESTURE", "Pinch SUCCESS")
-            }
-            override fun onCancelled(gestureDescription: GestureDescription) {
-                DebugLogger.log("GESTURE", "Pinch FAILED: Cancelled by OS")
-            }
+            override fun onCompleted(gestureDescription: GestureDescription) = DebugLogger.log("GESTURE", "Pinch SUCCESS")
+            override fun onCancelled(gestureDescription: GestureDescription) = DebugLogger.log("GESTURE", "Pinch FAILED")
         }, null)
     }
 
@@ -264,17 +285,24 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun recursiveLog(node: android.view.accessibility.AccessibilityNodeInfo, depth: Int) {
-        if (depth > 10) return // Prevent deep recursion stack overflow
+        if (depth > 15) return
         val sb = StringBuilder()
-        repeat(depth) { sb.append("  ") }
-        sb.append(node.className)
-        if (node.viewIdResourceName != null) sb.append(" ID:${node.viewIdResourceName}")
-        if (node.contentDescription != null) sb.append(" Desc:${node.contentDescription}")
-        if (node.isClickable) sb.append(" [CLICKABLE]")
+        repeat(depth) { sb.append(".") }
         
-        // Log significant nodes only to save spam, or all if debugging
-        if (node.viewIdResourceName != null || node.isClickable) {
-             DebugLogger.log("UI_NODE", sb.toString())
+        val text = node.text?.toString() ?: ""
+        val desc = node.contentDescription?.toString() ?: ""
+        val id = node.viewIdResourceName ?: ""
+        val bounds = android.graphics.Rect()
+        node.getBoundsInScreen(bounds)
+
+        sb.append("[").append(node.className.toString().split(".").last()).append("] ")
+        if (text.isNotEmpty()) sb.append("T:$text ")
+        if (desc.isNotEmpty()) sb.append("D:$desc ")
+        if (id.isNotEmpty()) sb.append("ID:$id ")
+        sb.append("B:(${bounds.left},${bounds.top})")
+        
+        if (node.isClickable || text.contains("0") || desc.contains("0")) {
+             DebugLogger.log("UI_TRACE", sb.toString())
         }
         
         for (i in 0 until node.childCount) {
