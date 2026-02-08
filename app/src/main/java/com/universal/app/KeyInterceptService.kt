@@ -17,23 +17,38 @@ class KeyInterceptService : AccessibilityService() {
 
     private var isVolUpPressed = false
     private var isVolDownPressed = false
+    private var isWaitingForTapHold = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         val action = event.action
         val duration = event.eventTime - event.downTime
-        val isLongPress = duration > 1000
         
         if (event.repeatCount == 0) {
             val actStr = if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"
-            DebugLogger.log("KEY", "$actStr Code:$keyCode Long:$isLongPress")
+            DebugLogger.log("KEY", "$actStr Code:$keyCode")
         }
 
         if (action == KeyEvent.ACTION_DOWN) {
-            if (event.repeatCount > 0) return true // Ignore auto-repeat when holding button
-
-            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = true
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                isVolUpPressed = true
+                val now = System.currentTimeMillis()
+                // Detect second press of a potential Tap-Hold (within 500ms of last Up)
+                if (now - lastUpTime < 500) {
+                    isWaitingForTapHold = true
+                }
+            }
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
+
+            // Detect Long Press part of the Tap-Hold
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && event.repeatCount > 0 && isWaitingForTapHold) {
+                DebugLogger.log("GESTURE", "VolUp Tap-Hold detected")
+                toggleCamera()
+                isWaitingForTapHold = false
+                return true
+            }
+
+            if (event.repeatCount > 0) return true
 
             if (isVolUpPressed && isVolDownPressed) return true
 
@@ -58,26 +73,8 @@ class KeyInterceptService : AccessibilityService() {
                 val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
                 if (!prefs.getBoolean("is_active", false)) return false
 
-                if (pendingClickRunnable != null) {
-                    // Double Click detected: Cancel the single click action
-                    handler.removeCallbacks(pendingClickRunnable!!)
-                    pendingClickRunnable = null
-                    
-                    DebugLogger.log("HEADSET", "Double Click -> Launching Camera")
-                    val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
-                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    startActivity(intent)
-                    // Wait 1.5s for camera to load, then pinch
-                    handler.postDelayed({ prepareWideLens() }, 1500)
-                } else {
-                    // Potential Single Click: Wait 400ms to see if user clicks again
-                    pendingClickRunnable = Runnable {
-                        DebugLogger.log("HEADSET", "Single Click Executed -> Scan & Snap")
-                        smartShutterClick()
-                        pendingClickRunnable = null
-                    }
-                    handler.postDelayed(pendingClickRunnable!!, 400)
-                }
+                DebugLogger.log("HEADSET", "Earphone Press -> Shutter")
+                smartShutterClick()
                 return true
             }
 
@@ -93,13 +90,36 @@ class KeyInterceptService : AccessibilityService() {
             }
 
             when (keyCode) {
-                KeyEvent.KEYCODE_VOLUME_UP -> handlePress("UP", upCount, isLongPress)
-                KeyEvent.KEYCODE_VOLUME_DOWN -> handlePress("DOWN", downCount, isLongPress)
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    isWaitingForTapHold = false
+                    val isActualLongPress = (event.eventTime - event.downTime) > 600
+                    handlePress("UP", upCount, isActualLongPress)
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    val isActualLongPress = (event.eventTime - event.downTime) > 600
+                    handlePress("DOWN", downCount, isActualLongPress)
+                }
             }
             return true
         }
 
         return super.onKeyEvent(event)
+    }
+
+    private fun toggleCamera() {
+        val root = rootInActiveWindow
+        val currentPackage = root?.packageName?.toString() ?: ""
+        
+        if (currentPackage.contains("camera") || currentPackage.contains("lens")) {
+            DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing via HOME.")
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } else {
+            DebugLogger.log("CAM_TOGGLE", "Launching Camera")
+            val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            handler.postDelayed({ prepareWideLens() }, 1500)
+        }
     }
 
     private fun handlePress(key: String, count: Int, isLong: Boolean) {
