@@ -107,7 +107,7 @@ object Uploader {
         })
     }
 
-    private fun startPolling(context: Context, id: String) {
+    fun startPolling(context: Context, id: String) {
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val url = "https://xvldfsmxskhemkslsbym.supabase.co/rest/v1/processed_images?id=eq.$id&select=status,solution_json"
         val request = Request.Builder().url(url)
