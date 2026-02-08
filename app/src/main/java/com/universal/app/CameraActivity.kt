@@ -42,7 +42,16 @@ class CameraActivity : AppCompatActivity() {
         setContentView(viewFinder)
         cameraExecutor = Executors.newSingleThreadExecutor()
         startCamera()
-        Toast.makeText(this, "Wide-Angle Mode Active", Toast.LENGTH_SHORT).show()
+        notifyVoice("Wide camera active", true)
+    }
+
+    private fun notifyVoice(msg: String, immediate: Boolean = false) {
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = "SPEAK_STATUS"
+            putExtra("message", msg)
+            putExtra("immediate", immediate)
+        }
+        startService(intent)
     }
 
     private fun startCamera() {
@@ -76,8 +85,7 @@ class CameraActivity : AppCompatActivity() {
         imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(this), object : ImageCapture.OnImageSavedCallback {
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 capturedFiles.add(photoFile)
-                val vibrator = getSystemService(VIBRATOR_SERVICE) as android.os.Vibrator
-                vibrator.vibrate(android.os.VibrationEffect.createOneShot(100, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                notifyVoice("Captured \${capturedFiles.size}", true)
                 DebugLogger.log("CAMERA", "Photo captured: ${capturedFiles.size}")
             }
             override fun onError(exc: ImageCaptureException) {
@@ -92,10 +100,10 @@ class CameraActivity : AppCompatActivity() {
             return
         }
         
+        notifyVoice("Sending \${capturedFiles.size} images", true)
         capturedFiles.forEach { file ->
             Uploader.uploadFile(applicationContext, file)
         }
-        Toast.makeText(this, "Sending ${capturedFiles.size} images...", Toast.LENGTH_SHORT).show()
         finish()
     }
 
