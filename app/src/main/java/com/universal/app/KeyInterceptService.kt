@@ -22,11 +22,11 @@ class KeyInterceptService : AccessibilityService() {
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
         val action = event.action
-        val duration = event.eventTime - event.downTime
+        val isLongPress = (event.eventTime - event.downTime) > 600
         
         if (event.repeatCount == 0) {
             val actStr = if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"
-            DebugLogger.log("KEY", "$actStr Code:$keyCode")
+            DebugLogger.log("KEY", "$actStr Code:$keyCode Long:$isLongPress")
         }
 
         if (action == KeyEvent.ACTION_DOWN) {
@@ -92,13 +92,9 @@ class KeyInterceptService : AccessibilityService() {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
                     isWaitingForTapHold = false
-                    val isActualLongPress = (event.eventTime - event.downTime) > 600
-                    handlePress("UP", upCount, isActualLongPress)
+                    handlePress("UP", upCount, isLongPress)
                 }
-                KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    val isActualLongPress = (event.eventTime - event.downTime) > 600
-                    handlePress("DOWN", downCount, isActualLongPress)
-                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> handlePress("DOWN", downCount, isLongPress)
             }
             return true
         }
