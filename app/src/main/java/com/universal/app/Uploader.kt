@@ -55,9 +55,11 @@ object Uploader {
         if (file == null) {
             DebugLogger.log("QUEUE", "Queue empty. Batch Finished.")
             isProcessing = false
+            if (totalInBatch > 0) {
+                notifyVoice(context, "All images processed successfully")
+            }
             totalInBatch = 0
             currentInBatch = 0
-            notifyVoice(context, "All images processed successfully")
             return
         }
 
