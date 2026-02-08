@@ -16,6 +16,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var mediaPlayer: MediaPlayer? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
+    private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
     private var isReady = false
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -46,6 +47,30 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale.US
             tts.setSpeechRate(0.9f)
+            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
+                override fun onDone(id: String?) {
+                    id?.let {
+                        val type = it.split("_").firstOrNull()
+                        if (type != null) {
+                            val file = File(audioFolder, it)
+                            synchronized(playlists) {
+                                playlists.getOrPut(type) { mutableListOf() }.add(file)
+                            }
+                        }
+                    }
+                    if (pendingSyntheses.decrementAndGet() <= 0) {
+                        synchronized(playlists) {
+                            playlists.values.forEach { it.sortBy { f -> f.name } }
+                        }
+                        triggerReadyVibration()
+                    }
+                }
+                override fun onError(id: String?) {
+                    DebugLogger.log("TTS", "Error processing $id")
+                    if (pendingSyntheses.decrementAndGet() <= 0) triggerReadyVibration()
+                }
+            })
             isReady = true
         }
     }
@@ -94,14 +119,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val solutions = root.optJSONArray("solutions") ?: return
             DebugLogger.log("TTS", "Processing ${solutions.length()} solutions")
             
-            var processedCount = 0
-            val totalToProcess = solutions.length()
-
+            pendingSyntheses.addAndGet(solutions.length())
             val batchId = System.currentTimeMillis()
+
             for (i in 0 until solutions.length()) {
                 val item = solutions.optJSONObject(i) ?: continue
                 val type = item.optString("type", "sa")
-                // Pad number for correct sorting (1 -> 001)
                 val rawNum = item.optString("number", i.toString())
                 val number = rawNum.padStart(3, '0')
                 val text = item.optString("answer", "").ifEmpty { item.optJSONArray("steps")?.optString(0, "") ?: "" }
@@ -117,42 +140,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 }
                 
                 val speech = "$typeName number $rawNum. Answer: $text"
-                // Naming convention: type_timestamp_number.wav
                 val fileName = "${type}_${batchId}_${number}.wav"
                 val file = File(audioFolder, fileName)
-                val utteranceId = fileName // Pass filename as ID for robust tracking in onDone
+                val utteranceId = fileName
                 
                 tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
             }
-            }
-
-            tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
-                override fun onDone(id: String?) {
-                    id?.let {
-                        // id is the filename (e.g., sa_12345678_001.wav)
-                        val type = it.split("_").firstOrNull()
-                        if (type != null) {
-                            val file = File(audioFolder, it)
-                            // Thread-safe addition
-                            synchronized(playlists) {
-                                playlists.getOrPut(type) { mutableListOf() }.add(file)
-                            }
-                        }
-                    }
-                    processedCount++
-                    if (processedCount >= totalToProcess) {
-                        synchronized(playlists) {
-                            playlists.values.forEach { it.sortBy { f -> f.name } }
-                        }
-                        triggerReadyVibration()
-                    }
-                }
-                override fun onError(id: String?) { 
-                    processedCount++
-                    if (processedCount >= totalToProcess) triggerReadyVibration()
-                }
-            })
         } catch (e: Exception) { DebugLogger.log("CRITICAL", "ProcessJson Error: ${e.message}") }
     }
 
