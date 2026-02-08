@@ -76,8 +76,8 @@ class ImageMonitorService : Service() {
             contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, null, null, sortOrder)?.use { cursor ->
                 if (cursor.moveToFirst()) {
                     val currentMaxId = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
-                    prefs.edit().putLong("last_image_id", currentMaxMaxId).apply()
-                    DebugLogger.log("SERVICE", "Initial Sync: Anchored at ID $currentMaxMaxId")
+                    prefs.edit().putLong("last_image_id", currentMaxId).apply()
+                    DebugLogger.log("SERVICE", "Initial Sync: Anchored at ID $currentMaxId")
                 }
             }
         }
