@@ -398,14 +398,26 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun wakeDevice(pm: android.os.PowerManager) {
-        val wakeLock = pm.newWakeLock(
-            android.os.PowerManager.FULL_WAKE_LOCK or
-            android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
-            android.os.PowerManager.ON_AFTER_RELEASE,
-            "UniversalApp::WakeUp"
-        )
-        wakeLock.acquire(3000L) // Stay on for 3 seconds to ensure TTS starts
-        DebugLogger.log("SYSTEM", "WakeUp command issued via Headset")
+        try {
+            val wakeLock = pm.newWakeLock(
+                android.os.PowerManager.FULL_WAKE_LOCK or
+                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                android.os.PowerManager.ON_AFTER_RELEASE,
+                "UniversalApp::WakeUp"
+            )
+            
+            DebugLogger.log("WAKE", "Attempting screen wake. Current Interactive: ${pm.isInteractive}")
+            
+            // Distinct vibration pattern for waking: short-long
+            val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+            vibrator.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 50, 100, 200), -1))
+            
+            wakeLock.acquire(3000L)
+            DebugLogger.log("WAKE", "WakeLock Acquired successfully")
+        } catch (e: Exception) {
+            DebugLogger.log("WAKE_ERROR", "Failed to wake screen: ${e.message}")
+            speak("System detected key but failed to light up screen", true)
+        }
     }
 
     private fun logUiHierarchy() {
