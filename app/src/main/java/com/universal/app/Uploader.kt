@@ -139,6 +139,11 @@ object Uploader {
                                         response.close(); return
                                     }
 
+                                    val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                                    if (!prefs.getBoolean("is_active", false)) {
+                                        DebugLogger.log("POLL", "System inactive, discarding solution $id")
+                                        response.close(); return
+                                    }
                                     DebugLogger.log("POLL", "Solution $id confirmed. Processing...")
                                     val solutionObj = record.optJSONObject("solution_json")
                                     val solutionData = solutionObj?.toString() ?: record.optString("solution_json", "")
