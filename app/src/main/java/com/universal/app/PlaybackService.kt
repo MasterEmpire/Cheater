@@ -21,6 +21,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var currentType: String? = null
     private var currentIndex = 0
     private val playlists = mutableMapOf<String, List<File>>()
+    private val autoPlayHandler = Handler(Looper.getMainLooper())
+    private var autoPlayRunnable: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -193,10 +195,31 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun triggerReadyVibration() {
         DebugLogger.log("SYSTEM", "Vibrating: Audio is Ready")
         val totalCount = playlists.values.sumOf { it.size }
-        updateNotification("Ready", "$totalCount answers loaded and waiting.")
+        updateNotification("Ready", "$totalCount answers loaded. Auto-play in 60s.")
+        
         val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
         val pattern = longArrayOf(0, 300, 200, 300, 200, 300)
         vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+
+        scheduleAutoPlay()
+    }
+
+    private fun scheduleAutoPlay() {
+        // Cancel any existing pending auto-play
+        autoPlayRunnable?.let { autoPlayHandler.removeCallbacks(it) }
+
+        autoPlayRunnable = Runnable {
+            if (playlists.isNotEmpty()) {
+                // Pick the first available category to start playing
+                val firstCategory = playlists.keys.firstOrNull()
+                if (firstCategory != null) {
+                    DebugLogger.log("AUTO", "Starting auto-play for category: $firstCategory")
+                    playType(firstCategory)
+                }
+            }
+        }
+
+        autoPlayHandler.postDelayed(autoPlayRunnable!!, 60000) // 1 minute delay
     }
 
     private fun updateNotification(title: String, text: String) {
@@ -290,6 +313,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun resetEverything() {
+        autoPlayRunnable?.let { autoPlayHandler.removeCallbacks(it) }
         mediaPlayer?.stop()
         playlists.clear()
         audioFolder.deleteRecursively()
