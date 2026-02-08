@@ -62,7 +62,9 @@ class ImageMonitorService : Service() {
     }
 
     private var lastEventTime = 0L
+    private var isObserverRegistered = false
     private fun startMonitoring() {
+        if (isObserverRegistered) return
         DebugLogger.log("SERVICE", "Observer initiated on MediaStore")
         observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
@@ -72,11 +74,12 @@ class ImageMonitorService : Service() {
                 val now = System.currentTimeMillis()
                 if (now - lastEventTime < 2000) return
                 lastEventTime = now
-                DebugLogger.log("EVENT", "Media change detected")
+                DebugLogger.log("EVENT", "Media change detected: $uri")
                 processNewImages()
             }
         }
         contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+        isObserverRegistered = true
     }
 
     private fun processNewImages() {
