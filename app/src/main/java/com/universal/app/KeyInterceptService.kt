@@ -173,10 +173,22 @@ class KeyInterceptService : AccessibilityService() {
                 val text = node.text?.toString()?.lowercase() ?: ""
                 val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                 
-                // Specifically targeting the .5 button seen in screenshot
-                if (text.contains(".5") || text.contains("0.5") || desc.contains(".5") || desc.contains("0.5")) {
-                    lensNode = node
-                    break
+                // Expanded keywords based on logs ("Ultra wide") and common camera UIs
+                val matches = listOf(".5", "0.5", "ultra", "wide").any { 
+                    (text.contains(it) || desc.contains(it)) && !text.contains("1x") 
+                }
+
+                if (matches) {
+                    // Find the actual clickable ancestor if this node isn't clickable
+                    var current: android.view.accessibility.AccessibilityNodeInfo? = node
+                    while (current != null) {
+                        if (current.isClickable) {
+                            lensNode = current
+                            break
+                        }
+                        current = current.parent
+                    }
+                    if (lensNode != null) break
                 }
                 for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
             }
@@ -251,8 +263,10 @@ class KeyInterceptService : AccessibilityService() {
     private fun clickShutterCoordinates() {
         val metrics = resources.displayMetrics
         val x = metrics.widthPixels / 2f
-        val y = metrics.heightPixels - 200f
+        // Adjusted: 1941/2400 is approx 80%. Using 82% as a safer middle ground for various models.
+        val y = metrics.heightPixels * 0.82f
 
+        DebugLogger.log("COORD_CLICK", "Targeting fallback coordinates: $x, $y")
         val clickPath = Path().apply { moveTo(x, y) }
         val gesture = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
