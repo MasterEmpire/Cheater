@@ -47,15 +47,14 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_UP) {
-            // Handle Earphone Media Keys
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
+            // ONLY launch camera on NEXT signal (Double Click)
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT) {
                 val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
                 if (!prefs.getBoolean("is_active", false)) return false
 
+                DebugLogger.log("KEYS", "Double-click detected, launching wide camera")
                 val intent = Intent(this, CameraActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                    addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
                 startActivity(intent)
                 return true
