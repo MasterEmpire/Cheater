@@ -104,20 +104,29 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 val file = File(audioFolder, "${type}_$number.wav")
                 val utteranceId = "$type|$number"
                 
+                // Just synthesize. Addition to playlist happens in onDone
                 tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
-                playlists.getOrPut(type) { mutableListOf() }.add(file)
             }
 
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(id: String?) { DebugLogger.log("TTS", "Started synthesis: $id") }
-                override fun onDone(id: String?) { 
+                override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
+                override fun onDone(id: String?) {
+                    id?.let { 
+                        val parts = it.split("|")
+                        if (parts.size == 2) {
+                            val type = parts[0]
+                            val file = File(audioFolder, "${type}_${parts[1]}.wav")
+                            playlists.getOrPut(type) { mutableListOf() }.add(file)
+                        }
+                    }
                     processedCount++
-                    DebugLogger.log("TTS", "Finished synthesis: $id ($processedCount/$totalToProcess)")
-                    if (processedCount >= totalToProcess) triggerReadyVibration() 
+                    if (processedCount >= totalToProcess) {
+                        playlists.values.forEach { it.sortBy { f -> f.name } }
+                        triggerReadyVibration()
+                    }
                 }
                 override fun onError(id: String?) { 
                     processedCount++
-                    DebugLogger.log("ERROR", "TTS Synthesis Error: $id")
                     if (processedCount >= totalToProcess) triggerReadyVibration()
                 }
             })
