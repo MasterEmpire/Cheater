@@ -235,7 +235,24 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playNext() {
-        if (currentType == null) return
+        val type = currentType ?: return
+        val list = playlists[type] ?: return
+        
+        if (currentIndex >= list.size - 1) {
+            stopAllPlayback()
+            val readableType = when(type) {
+                "wo" -> "worked out solutions"
+                "tf" -> "true or false"
+                "sa" -> "short answers"
+                "mc" -> "multiple choice"
+                "ma" -> "matching"
+                "fill" -> "fill in the blanks"
+                else -> type
+            }
+            speakStatus("End of $readableType", false)
+            return
+        }
+
         stopAllPlayback()
         currentIndex++
         savePlaybackState()
@@ -252,8 +269,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playCurrent() {
         val list = playlists[currentType] ?: return
-        if (currentIndex < 0) currentIndex = list.size - 1
-        if (currentIndex >= list.size) currentIndex = 0
+        if (currentIndex < 0) currentIndex = 0
+        if (currentIndex >= list.size) return
         
         try {
             // stopAllPlayback() is already called by navigation methods calling this,
