@@ -55,7 +55,12 @@ object Uploader {
                 val bodyStr = response.body?.string() ?: ""
                 if (response.isSuccessful && bodyStr.isNotEmpty()) {
                     val id = JSONObject(bodyStr).optString("id")
-                    if (id.isNotEmpty()) startPolling(context, id)
+                    if (id.isNotEmpty()) {
+                        context.startService(Intent(context, PlaybackService::class.java).apply { action = "SPEAK_STATUS"; putExtra("message", "Upload success. Processing.") })
+                        startPolling(context, id)
+                    }
+                } else {
+                    context.startService(Intent(context, PlaybackService::class.java).apply { action = "SPEAK_STATUS"; putExtra("message", "Server error") })
                 }
                 response.close()
             }
