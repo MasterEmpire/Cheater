@@ -82,14 +82,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun processJson(jsonStr: String) {
         if (!isReady) {
+            DebugLogger.log("TTS", "Not ready, queuing...")
             Handler(Looper.getMainLooper()).postDelayed({ processJson(jsonStr) }, 2000)
             return
         }
         try {
             val root = JSONObject(jsonStr)
             val solutions = root.optJSONArray("solutions") ?: return
-            playlists.clear()
-            var lastId = ""
+            DebugLogger.log("TTS", "Processing ${solutions.length()} solutions")
+            
+            var processedCount = 0
+            val totalToProcess = solutions.length()
 
             for (i in 0 until solutions.length()) {
                 val item = solutions.optJSONObject(i) ?: continue
@@ -99,18 +102,26 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 
                 val speech = "Question $number. Answer: $text"
                 val file = File(audioFolder, "${type}_$number.wav")
-                lastId = "$type|$number"
+                val utteranceId = "$type|$number"
                 
-                tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, lastId) }, file, lastId)
+                tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
                 playlists.getOrPut(type) { mutableListOf() }.add(file)
             }
 
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(id: String?) {}
-                override fun onDone(id: String?) { if (id == lastId) triggerReadyVibration() }
-                override fun onError(id: String?) {}
+                override fun onStart(id: String?) { DebugLogger.log("TTS", "Started synthesis: $id") }
+                override fun onDone(id: String?) { 
+                    processedCount++
+                    DebugLogger.log("TTS", "Finished synthesis: $id ($processedCount/$totalToProcess)")
+                    if (processedCount >= totalToProcess) triggerReadyVibration() 
+                }
+                override fun onError(id: String?) { 
+                    processedCount++
+                    DebugLogger.log("ERROR", "TTS Synthesis Error: $id")
+                    if (processedCount >= totalToProcess) triggerReadyVibration()
+                }
             })
-        } catch (e: Exception) { DebugLogger.log("ERROR", "JSON: ${e.message}") }
+        } catch (e: Exception) { DebugLogger.log("CRITICAL", "ProcessJson Error: ${e.message}") }
     }
 
     private fun triggerReadyVibration() {
