@@ -131,11 +131,34 @@ fun AppDashboard() {
             ) { Text("GRANT SYSTEM PERMISSIONS") }
         }
 
+        // Customization Toggles
+        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val keysEnabled = remember { mutableStateOf(prefs.getBoolean("keys_enabled", true)) }
+            val headsetTrigger = remember { mutableStateOf(prefs.getBoolean("headset_trigger", false)) }
+            val touchBlocker = remember { mutableStateOf(prefs.getBoolean("touch_blocker", false)) }
+            val volShutter = remember { mutableStateOf(prefs.getBoolean("vol_shutter", false)) }
+
+            SettingsToggle("Intercept Keys (Enable for Logic)", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
+            SettingsToggle("Earphone Double-Click Trigger", headsetTrigger) { prefs.edit().putBoolean("headset_trigger", it).apply() }
+            SettingsToggle("Block Touch in Camera", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
+            SettingsToggle("Let Vol Keys Take Photo", volShutter) { prefs.edit().putBoolean("vol_shutter", it).apply() }
+        }
+
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { requestBatteryOptimization(context) }, modifier = Modifier.weight(1f)) { Text("BATTERY", fontSize = 10.sp) }
             OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.weight(1f)) { Text("ACCESSIBILITY", fontSize = 10.sp) }
             OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) { Text("LOGS", fontSize = 10.sp) }
         }
+    }
+}
+
+@Composable
+fun SettingsToggle(label: String, state: MutableState<Boolean>, onValueChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), color = Color.LightGray)
+        Switch(checked = state.value, onCheckedChange = { state.value = it; onValueChange(it) }, modifier = Modifier.scale(0.7f))
+    }
+}
 
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
