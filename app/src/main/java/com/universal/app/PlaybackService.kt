@@ -17,6 +17,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var mediaPlayer: MediaPlayer? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
+    private var isProcessingBatch = false
     private var isReady = false
     private var wakeLock: PowerManager.WakeLock? = null
 
@@ -50,8 +51,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
                 override fun onDone(id: String?) {
-                    // Only process solutions, ignore STATUS_ messages
-                    if (id != null && !id.startsWith("STATUS_")) {
+                    // Only proceed if we are actually expecting a batch of solutions
+                    if (isProcessingBatch && id != null && !id.startsWith("STATUS_")) {
                         val type = id.split("_").firstOrNull()
                         if (type != null) {
                             val file = File(audioFolder, id)
@@ -60,8 +61,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                             }
                         }
                         
-                        // Only trigger ready when a real batch hits exactly 0
-                        if (pendingSyntheses.decrementAndGet() == 0) {
+                        val remaining = pendingSyntheses.decrementAndGet()
+                        if (remaining <= 0) {
+                            isProcessingBatch = false
+                            pendingSyntheses.set(0)
                             synchronized(playlists) {
                                 playlists.values.forEach { it.sortBy { f -> f.name } }
                             }
@@ -122,9 +125,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         try {
             val root = JSONObject(jsonStr)
             val solutions = root.optJSONArray("solutions") ?: return
-            DebugLogger.log("TTS", "Processing ${solutions.length()} solutions")
+            if (solutions.length() == 0) return
             
-            pendingSyntheses.addAndGet(solutions.length())
+            DebugLogger.log("TTS", "Processing ${solutions.length()} solutions")
+            isProcessingBatch = true
+            pendingSyntheses.set(solutions.length())
             val batchId = System.currentTimeMillis()
 
             for (i in 0 until solutions.length()) {
@@ -242,6 +247,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun resetEverything() {
         autoPlayRunnable?.let { autoPlayHandler.removeCallbacks(it) }
+        isProcessingBatch = false
+        pendingSyntheses.set(0)
         mediaPlayer?.stop()
         playlists.clear()
         audioFolder.deleteRecursively()
