@@ -97,7 +97,7 @@ class ImageMonitorService : Service() {
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
                 val path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
                 
-                // Double check to ensure we haven't already processed this ID in this query
+                DebugLogger.log("MONITOR", "Scanning ID: $id (Last processed: $lastId)")
                 if (id > lastId) {
                     if (id > maxId) maxId = id
                     val file = File(path)
