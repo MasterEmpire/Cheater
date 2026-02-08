@@ -110,10 +110,32 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         return START_STICKY
     }
 
+    private fun stopAllPlayback() {
+        // Stop TTS
+        if (::tts.isInitialized) {
+            tts.stop()
+        }
+        // Stop MediaPlayer
+        try {
+            mediaPlayer?.let {
+                if (it.isPlaying) it.stop()
+                it.reset()
+                it.release()
+            }
+        } catch (e: Exception) {
+            DebugLogger.log("CLEANUP", "Error stopping media: ${e.message}")
+        } finally {
+            mediaPlayer = null
+        }
+    }
+
     private fun speakStatus(message: String, immediate: Boolean) {
         if (!isReady) return
+        if (immediate) {
+            stopAllPlayback()
+        }
         val queueMode = if (immediate) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-        tts.speak(message, queueMode, null, "STATUS_\${System.currentTimeMillis()}")
+        tts.speak(message, queueMode, null, "STATUS_${System.currentTimeMillis()}")
     }
 
     private fun processJson(jsonStr: String) {
@@ -190,6 +212,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playType(type: String) {
+        stopAllPlayback()
         val list = playlists[type]
         if (list.isNullOrEmpty()) {
             val readableType = when(type) {
@@ -213,6 +236,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playNext() {
         if (currentType == null) return
+        stopAllPlayback()
         currentIndex++
         savePlaybackState()
         playCurrent()
@@ -220,6 +244,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playPrevious() {
         if (currentType == null) return
+        stopAllPlayback()
         currentIndex--
         savePlaybackState()
         playCurrent()
@@ -231,12 +256,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (currentIndex >= list.size) currentIndex = 0
         
         try {
-            mediaPlayer?.release()
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(list[currentIndex].absolutePath)
-                prepareAsync()
-                setOnPreparedListener { start() }
-                setOnCompletionListener { playNext() }
+            // stopAllPlayback() is already called by navigation methods calling this,
+            // but we ensure clean state here regardless
+            if (mediaPlayer == null) {
+                mediaPlayer = MediaPlayer().apply {
+                    setDataSource(list[currentIndex].absolutePath)
+                    prepareAsync()
+                    setOnPreparedListener { start() }
+                    setOnCompletionListener { playNext() }
+                }
             }
         } catch (e: Exception) { DebugLogger.log("MEDIA", "Error: ${e.message}") }
     }
@@ -291,7 +319,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun playSpecificFile(fileName: String) {
         val file = File(audioFolder, fileName)
         if (!file.exists()) return
-        mediaPlayer?.release()
+        stopAllPlayback()
         mediaPlayer = MediaPlayer().apply {
             setDataSource(file.absolutePath)
             prepare()
