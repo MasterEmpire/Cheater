@@ -47,6 +47,15 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_UP) {
+            // Handle Earphone Media Keys
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
+                val intent = Intent(this, CameraActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                }
+                startActivity(intent)
+                return true
+            }
+
             val wasBothPressed = isVolUpPressed && isVolDownPressed
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = false
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = false
