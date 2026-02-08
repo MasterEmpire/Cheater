@@ -68,6 +68,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                             synchronized(playlists) {
                                 playlists.values.forEach { it.sortBy { f -> f.name } }
                             }
+                            speakStatus("Solutions ready. Use volume keys to navigate.", false)
                             triggerReadyVibration()
                         }
                     }
