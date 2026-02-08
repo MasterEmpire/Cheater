@@ -18,6 +18,7 @@ class KeyInterceptService : AccessibilityService() {
     private var isVolUpPressed = false
     private var isVolDownPressed = false
     private var isWaitingForTapHold = false
+    private var isWaitingForDownTapHold = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val keyCode = event.keyCode
@@ -30,13 +31,15 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_DOWN) {
+            val now = System.currentTimeMillis()
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
                 isVolUpPressed = true
-                val now = System.currentTimeMillis()
-                // If this press starts quickly after the last release, it's a potential Tap-Hold
                 isWaitingForTapHold = (now - lastUpTime < 800)
             }
-            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                isVolDownPressed = true
+                isWaitingForDownTapHold = (now - lastDownTime < 800)
+            }
 
             if (event.repeatCount > 0) return true
             if (isVolUpPressed && isVolDownPressed) return true
@@ -93,7 +96,18 @@ class KeyInterceptService : AccessibilityService() {
                     isWaitingForTapHold = false
                     handlePress("UP", upCount, isLongPress)
                 }
-                KeyEvent.KEYCODE_VOLUME_DOWN -> handlePress("DOWN", downCount, isLongPress)
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    val duration = event.eventTime - event.downTime
+                    if (isWaitingForDownTapHold && duration > 500) {
+                        DebugLogger.log("GESTURE", "System Reset Triggered")
+                        triggerReset()
+                        isWaitingForDownTapHold = false
+                        downCount = 0
+                        return true
+                    }
+                    isWaitingForDownTapHold = false
+                    handlePress("DOWN", downCount, isLongPress)
+                }
             }
             return true
         }
@@ -220,7 +234,18 @@ class KeyInterceptService : AccessibilityService() {
         val gesture = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(clickPath, 0, 50))
             .build()
+        dispatchGesture(gesture, null, null)
+        DebugLogger.log("AUTO", "Wide-lens pinch triggered")
+    }
+
+    private fun triggerReset() {
+        val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+        vibrator.vibrate(android.os.VibrationEffect.createOneShot(200, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
         
+        val intent = Intent(this, PlaybackService::class.java)
+        intent.action = "RESET"
+        startService(intent)
+    }
         dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
             override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
                 DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
