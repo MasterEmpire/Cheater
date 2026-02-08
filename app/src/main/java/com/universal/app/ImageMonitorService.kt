@@ -91,19 +91,31 @@ class ImageMonitorService : Service() {
         
         contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, "${MediaStore.Images.Media._ID} > ?", arrayOf(lastId.toString()), sortOrder)?.use { cursor ->
             var maxId = lastId
+            val newFiles = mutableListOf<File>()
+            
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
                 val path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
-                if (id > maxId) maxId = id
-
-                val file = File(path)
-                Handler(Looper.getMainLooper()).postDelayed({
-                    if (file.exists() && file.length() > 100) {
-                        Uploader.enqueueFiles(this@ImageMonitorService, listOf(file))
+                
+                // Double check to ensure we haven't already processed this ID in this query
+                if (id > lastId) {
+                    if (id > maxId) maxId = id
+                    val file = File(path)
+                    if (file.exists() && file.length() > 1000) { // Ignore tiny thumbnails/temp files
+                        newFiles.add(file)
                     }
-                }, 1500)
+                }
             }
-            prefs.edit().putLong("last_image_id", maxId).apply()
+            
+            if (newFiles.isNotEmpty()) {
+                // Save the new maxId immediately to prevent the next observer trigger from seeing these same files
+                prefs.edit().putLong("last_image_id", maxId).apply()
+                
+                // Delay the actual upload slightly to ensure the file is fully written to disk by the system
+                Handler(Looper.getMainLooper()).postDelayed({
+                    Uploader.enqueueFiles(this@ImageMonitorService, newFiles)
+                }, 1000)
+            }
         }
     }
 
