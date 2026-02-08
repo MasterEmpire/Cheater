@@ -228,14 +228,21 @@ class KeyInterceptService : AccessibilityService() {
     private fun clickShutterCoordinates() {
         val metrics = resources.displayMetrics
         val x = metrics.widthPixels / 2f
-        val y = metrics.heightPixels - 200f // Common shutter location
+        val y = metrics.heightPixels - 200f
 
         val clickPath = android.graphics.Path().apply { moveTo(x, y) }
         val gesture = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(clickPath, 0, 50))
             .build()
-        dispatchGesture(gesture, null, null)
-        DebugLogger.log("AUTO", "Wide-lens pinch triggered")
+
+        dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
+            }
+            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+                DebugLogger.log("COORD_CLICK", "Point Click FAILED at $x, $y")
+            }
+        }, null)
     }
 
     private fun triggerReset() {
@@ -245,15 +252,6 @@ class KeyInterceptService : AccessibilityService() {
         val intent = Intent(this, PlaybackService::class.java)
         intent.action = "RESET"
         startService(intent)
-    }
-        dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
-            }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
-                DebugLogger.log("COORD_CLICK", "Point Click FAILED at $x, $y")
-            }
-        }, null)
     }
 
     private fun logUiHierarchy() {
