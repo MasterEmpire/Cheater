@@ -138,7 +138,21 @@ fun AppDashboard() {
         }
 
         Spacer(modifier = Modifier.height(24.dp))
-        Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = Color.Cyan)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = Color.Cyan)
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = Color.Cyan.copy(alpha = 0.2f)
+            ) {
+                Text(
+                    text = "${audioFiles.size}",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Cyan
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(8.dp))
         
         Card(modifier = Modifier.fillMaxWidth().weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)) {
