@@ -94,6 +94,7 @@ object Uploader {
                     val id = JSONObject(bodyStr).optString("id")
                     if (id.isNotEmpty()) {
                         DebugLogger.log("POLL", "Got Record ID: $id. Waiting for solver...")
+                        notifyVoice(context, "Image received by server. Analysis started.")
                         startPolling(context, id)
                     } else {
                         DebugLogger.log("UPLOAD", "ID missing in response")
@@ -140,6 +141,7 @@ object Uploader {
                                 val record = data.optJSONObject(0)
                                 if (record?.optString("status") == "completed") {
                                     val sol = record.optJSONObject("solution_json")?.toString() ?: record.optString("solution_json")
+                                    notifyVoice(context, "Analysis complete. Downloading solutions.")
                                     context.startService(Intent(context, PlaybackService::class.java).apply { action = "GENERATE"; putExtra("data", sol) })
                                     activePolls.remove(id)
                                     handler.postDelayed({ processNext(context) }, 1000)
