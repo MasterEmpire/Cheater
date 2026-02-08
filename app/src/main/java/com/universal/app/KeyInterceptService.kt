@@ -150,12 +150,12 @@ class KeyInterceptService : AccessibilityService() {
         val centerX = metrics.widthPixels / 2f
         val centerY = metrics.heightPixels / 2f
         
-        // Gesture: Pinch IN (Fingers moving from edges to center) to Zoom Out/Wide
-        val path1 = android.graphics.Path().apply { moveTo(centerX - 300, centerY); lineTo(centerX - 20, centerY) }
-        val path2 = android.graphics.Path().apply { moveTo(centerX + 300, centerY); lineTo(centerX + 20, centerY) }
+        // Gesture: Diagonal Pinch (Upper corners to center) to avoid bottom UI buttons
+        val path1 = android.graphics.Path().apply { moveTo(100f, 100f); lineTo(centerX - 50, centerY - 50) }
+        val path2 = android.graphics.Path().apply { moveTo(metrics.widthPixels - 100f, 100f); lineTo(centerX + 50, centerY - 50) }
         
-        val stroke1 = android.accessibilityservice.GestureDescription.StrokeDescription(path1, 0, 400)
-        val stroke2 = android.accessibilityservice.GestureDescription.StrokeDescription(path2, 0, 400)
+        val stroke1 = android.accessibilityservice.GestureDescription.StrokeDescription(path1, 0, 500)
+        val stroke2 = android.accessibilityservice.GestureDescription.StrokeDescription(path2, 0, 500)
         
         val gesture = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(stroke1).addStroke(stroke2).build()
