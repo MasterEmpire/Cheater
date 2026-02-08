@@ -74,6 +74,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val restartServiceIntent = Intent(applicationContext, this.javaClass)
+        restartServiceIntent.setPackage(packageName)
+        val restartServicePendingIntent = android.app.PendingIntent.getService(
+            applicationContext, 2, restartServiceIntent, 
+            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmService = applicationContext.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        alarmService.set(android.app.AlarmManager.ELAPSED_REALTIME, android.os.SystemClock.elapsedRealtime() + 1000, restartServicePendingIntent)
+        super.onTaskRemoved(rootIntent)
+    }
+
     private fun playSpecificFile(fileName: String) {
         val file = File(audioFolder, fileName)
         if (!file.exists()) return
