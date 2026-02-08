@@ -65,10 +65,26 @@ class ImageMonitorService : Service() {
     private var isObserverRegistered = false
     private fun startMonitoring() {
         if (isObserverRegistered) return
+        
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val lastId = prefs.getLong("last_image_id", -1)
+
+        // Fix: If first run, sync with current max ID to prevent bulk upload
+        if (lastId == -1L) {
+            val projection = arrayOf(MediaStore.Images.Media._ID)
+            val sortOrder = "${MediaStore.Images.Media._ID} DESC"
+            contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, null, null, sortOrder)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val currentMaxId = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                    prefs.edit().putLong("last_image_id", currentMaxMaxId).apply()
+                    DebugLogger.log("SERVICE", "Initial Sync: Anchored at ID $currentMaxMaxId")
+                }
+            }
+        }
+
         DebugLogger.log("SERVICE", "Observer initiated on MediaStore")
         observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (!prefs.getBoolean("is_active", false)) return
 
                 val now = System.currentTimeMillis()
