@@ -194,23 +194,31 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playNext() {
+        if (currentType == null) {
+            DebugLogger.log("AUDIO", "Next ignored: No category selected")
+            return
+        }
         currentIndex++
         playCurrent()
     }
 
     private fun playPrevious() {
+        if (currentType == null) {
+            DebugLogger.log("AUDIO", "Previous ignored: No category selected")
+            return
+        }
         currentIndex--
         playCurrent()
     }
 
     private fun playCurrent() {
+        if (currentType == null) return
+        
         val list = playlists[currentType]
         
         if (list == null || list.isEmpty()) {
-            DebugLogger.log("AUDIO", "Attempted to play empty category: $currentType")
-            if (isReady) {
-                tts.speak("There is no available answer for that category", TextToSpeech.QUEUE_FLUSH, null, "EMPTY_NOTICE")
-            }
+            DebugLogger.log("AUDIO", "Category empty: $currentType")
+            // Removed annoying TTS 'no available' announcement for navigation
             return
         }
 
