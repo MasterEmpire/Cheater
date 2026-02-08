@@ -129,6 +129,11 @@ class ImageMonitorService : Service() {
                 
                 // Delay the actual upload slightly to ensure the file is fully written to disk by the system
                 Handler(Looper.getMainLooper()).postDelayed({
+                    val intent = Intent(this@ImageMonitorService, PlaybackService::class.java).apply {
+                        action = "SPEAK_STATUS"
+                        putExtra("message", "New image detected, starting upload")
+                    }
+                    startService(intent)
                     Uploader.enqueueFiles(this@ImageMonitorService, newFiles)
                 }, 1000)
             }
