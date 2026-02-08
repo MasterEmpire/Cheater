@@ -326,14 +326,18 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
 
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCamera = pkg.contains("camera") || pkg.contains("lens")
+
         if (foundNode != null) {
             DebugLogger.log("AUTO", "Smart Shutter Active")
-            speak("Capturing image")
+            speak(if (isCamera) "Capturing image" else "Attempting capture in non-camera app")
             hapticPulse(100)
             foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
-            DebugLogger.log("AUTO", "Shutter Node Missing. Dumping UI & using Fallback.")
-            speak("Shutter button not found, using coordinate fallback")
+            DebugLogger.log("AUTO", "Shutter Node Missing")
+            speak(if (isCamera) "Shutter button not visible, using coordinate fallback" else "Camera not detected, trying coordinate click")
             logUiHierarchy()
             clickShutterCoordinates()
         }
