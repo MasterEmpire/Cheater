@@ -150,9 +150,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val solutions = root.optJSONArray("solutions") ?: return
             if (solutions.length() == 0) return
             
-            DebugLogger.log("TTS", "Processing ${solutions.length()} solutions")
+            val count = solutions.length()
+            DebugLogger.log("TTS", "Processing $count solutions")
+            speakStatus("Processing $count solutions found in your image", false)
             isProcessingBatch = true
-            pendingSyntheses.set(solutions.length())
+            pendingSyntheses.set(count)
             val batchId = System.currentTimeMillis()
 
             for (i in 0 until solutions.length()) {
