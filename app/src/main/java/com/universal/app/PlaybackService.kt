@@ -50,25 +50,30 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
                 override fun onDone(id: String?) {
-                    id?.let {
-                        val type = it.split("_").firstOrNull()
+                    // Only process solutions, ignore STATUS_ messages
+                    if (id != null && !id.startsWith("STATUS_")) {
+                        val type = id.split("_").firstOrNull()
                         if (type != null) {
-                            val file = File(audioFolder, it)
+                            val file = File(audioFolder, id)
                             synchronized(playlists) {
                                 playlists.getOrPut(type) { mutableListOf() }.add(file)
                             }
                         }
-                    }
-                    if (pendingSyntheses.decrementAndGet() <= 0) {
-                        synchronized(playlists) {
-                            playlists.values.forEach { it.sortBy { f -> f.name } }
+                        
+                        // Only trigger ready when a real batch hits exactly 0
+                        if (pendingSyntheses.decrementAndGet() == 0) {
+                            synchronized(playlists) {
+                                playlists.values.forEach { it.sortBy { f -> f.name } }
+                            }
+                            triggerReadyVibration()
                         }
-                        triggerReadyVibration()
                     }
                 }
                 override fun onError(id: String?) {
                     DebugLogger.log("TTS", "Error processing $id")
-                    if (pendingSyntheses.decrementAndGet() <= 0) triggerReadyVibration()
+                    if (id != null && !id.startsWith("STATUS_")) {
+                        if (pendingSyntheses.decrementAndGet() == 0) triggerReadyVibration()
+                    }
                 }
             })
             isReady = true
