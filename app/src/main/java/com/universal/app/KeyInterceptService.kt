@@ -49,8 +49,13 @@ class KeyInterceptService : AccessibilityService() {
         if (action == KeyEvent.ACTION_UP) {
             // Handle Earphone Media Keys
             if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
+                val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
+                if (!prefs.getBoolean("is_active", false)) return false
+
                 val intent = Intent(this, CameraActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                    addFlags(Intent.FLAG_ACTIVITY_NO_USER_ACTION)
                 }
                 startActivity(intent)
                 return true
