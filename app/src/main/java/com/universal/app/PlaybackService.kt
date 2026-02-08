@@ -69,8 +69,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "PAUSE" -> pauseAudio()
             "RESET" -> resetEverything()
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
+            "SPEAK_STATUS" -> intent.getStringExtra("message")?.let { speakStatus(it, intent.getBooleanExtra("immediate", false)) }
         }
         return START_STICKY
+    }
+
+    private fun speakStatus(message: String, immediate: Boolean) {
+        if (!isReady) return
+        val queueMode = if (immediate) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        tts.speak(message, queueMode, null, "STATUS_\${System.currentTimeMillis()}")
     }
 
     private fun processJson(jsonStr: String) {
