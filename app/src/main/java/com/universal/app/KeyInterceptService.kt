@@ -9,7 +9,9 @@ import android.view.accessibility.AccessibilityEvent
 
 class KeyInterceptService : AccessibilityService() {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var pendingClickRunnable: Runnable? = null
+    private var blockerOverlay: android.view.View? = null
+    private var lastHeadsetClick = 0L
+    private var headsetCount = 0
     private var lastUpTime = 0L
     private var upCount = 0
     private var lastDownTime = 0L
@@ -23,9 +25,22 @@ class KeyInterceptService : AccessibilityService() {
     private var isWaitingForDownTapHold = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("is_active", false)) return false
+        if (!prefs.getBoolean("keys_enabled", true)) return false
+
         val keyCode = event.keyCode
         val action = event.action
         val isLongPress = (event.eventTime - event.downTime) > 600
+
+        // Touch Blocker Emergency Kill: Double tap Vol Up inside camera
+        if (action == KeyEvent.ACTION_UP && keyCode == KeyEvent.KEYCODE_VOLUME_UP && blockerOverlay != null) {
+             val now = System.currentTimeMillis()
+             if (now - lastUpTime < 400) {
+                 DebugLogger.log("BLOCKER", "Emergency Removal via VolUp Double-Tap")
+                 removeTouchBlocker()
+             }
+        }
         
         if (event.repeatCount == 0) {
             val actStr = if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"
@@ -63,12 +78,33 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_UP) {
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
-                val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
-                if (!prefs.getBoolean("is_active", false)) return false
+            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                val now = System.currentTimeMillis()
+                val useHeadsetTrigger = prefs.getBoolean("headset_trigger", false)
 
-                DebugLogger.log("HEADSET", "Earphone Press -> Shutter")
-                smartShutterClick()
+                if (useHeadsetTrigger) {
+                    if (now - lastHeadsetClick < 500) headsetCount++ else headsetCount = 1
+                    lastHeadsetClick = now
+                    DebugLogger.log("HEADSET", "Press detected (Count: $headsetCount)")
+                    
+                    if (headsetCount == 2) {
+                        DebugLogger.log("HEADSET", "Double Click -> Triggering Camera")
+                        toggleCamera()
+                        headsetCount = 0
+                        return true
+                    }
+                    
+                    // Brief delay to see if a second click comes before triggering shutter
+                    handler.postDelayed({ 
+                        if (headsetCount == 1) { 
+                            DebugLogger.log("HEADSET", "Single Click -> Shutter")
+                            smartShutterClick() 
+                            headsetCount = 0
+                        }
+                    }, 500)
+                } else {
+                    smartShutterClick()
+                }
                 return true
             }
 
@@ -82,6 +118,10 @@ class KeyInterceptService : AccessibilityService() {
                 startService(intent)
                 return true
             }
+
+            val root = rootInActiveWindow
+            val isCamOpen = root?.packageName?.toString()?.contains("camera") == true
+            if (isCamOpen && prefs.getBoolean("vol_shutter", false)) return false
 
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
@@ -123,7 +163,8 @@ class KeyInterceptService : AccessibilityService() {
         
         if (currentPackage.contains("camera") || currentPackage.contains("lens")) {
             DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing via HOME.")
-            speak("Closing camera, returning to home screen", true)
+            speak("Closing camera", true)
+            removeTouchBlocker()
             performGlobalAction(GLOBAL_ACTION_HOME)
         } else {
             DebugLogger.log("CAM_TOGGLE", "Launching Camera")
@@ -131,7 +172,48 @@ class KeyInterceptService : AccessibilityService() {
             val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
-            handler.postDelayed({ prepareWideLens() }, 1500)
+            
+            handler.postDelayed({
+                prepareWideLens()
+                val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
+                if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+            }, 1500)
+        }
+    }
+
+    private fun showTouchBlocker() {
+        if (blockerOverlay != null) return
+        val wm = getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+        blockerOverlay = android.view.View(this).apply {
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            setOnTouchListener { _, _ -> true } // Consume all touches
+        }
+
+        val params = android.view.WindowManager.LayoutParams(
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.MATCH_PARENT,
+            android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            android.graphics.PixelFormat.TRANSLUCENT
+        )
+        
+        try {
+            wm.addView(blockerOverlay, params)
+            DebugLogger.log("BLOCKER", "Touch Blocker Enabled")
+            speak("Touch input blocked")
+        } catch (e: Exception) { DebugLogger.log("BLOCKER", "Error: ${e.message}") }
+    }
+
+    private fun removeTouchBlocker() {
+        blockerOverlay?.let {
+            val wm = getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+            try { 
+                wm.removeView(it) 
+                speak("Touch input restored")
+            } catch (e: Exception) {}
+            blockerOverlay = null
+            DebugLogger.log("BLOCKER", "Touch Blocker Removed")
         }
     }
 
@@ -336,6 +418,15 @@ class KeyInterceptService : AccessibilityService() {
         }
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
-    override fun onInterrupt() {}
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val type = event?.eventType
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
+            val pkg = event.packageName?.toString() ?: ""
+            if (blockerOverlay != null && !pkg.contains("camera") && !pkg.contains("lens")) {
+                // User left camera (home button, notification shade apps, etc)
+                removeTouchBlocker()
+            }
+        }
+    }
+    override fun onInterrupt() { removeTouchBlocker() }
 }
