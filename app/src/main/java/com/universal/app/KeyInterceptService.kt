@@ -30,15 +30,16 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (action == KeyEvent.ACTION_DOWN) {
+        if (action == KeyEvent.ACTION_DOWN) {
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
                 isVolUpPressed = true
                 val now = System.currentTimeMillis()
-                // Detect second press of a potential Tap-Hold (within 500ms of last Up)
-                if (now - lastUpTime < 500) {
-                    isWaitingForTapHold = true
-                }
+                // If this press starts quickly after the last release, it's a potential Tap-Hold
+                isWaitingForTapHold = (now - lastUpTime < 800)
             }
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = true
+
+            if (event.repeatCount > 0) return true
 
             // Detect Long Press part of the Tap-Hold
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && event.repeatCount > 0 && isWaitingForTapHold) {
@@ -91,6 +92,16 @@ class KeyInterceptService : AccessibilityService() {
 
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
+                    val duration = event.eventTime - event.downTime
+                    // If it's a Tap-Hold: Second press (isWaiting) AND duration is long
+                    if (isWaitingForTapHold && duration > 500) {
+                        DebugLogger.log("GESTURE", "Camera Toggle Triggered")
+                        toggleCamera()
+                        // Reset states to prevent audio triggers
+                        isWaitingForTapHold = false
+                        upCount = 0 
+                        return true 
+                    }
                     isWaitingForTapHold = false
                     handlePress("UP", upCount, isLongPress)
                 }
