@@ -94,96 +94,82 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun processJson(jsonStr: String) {
         if (!isReady) {
-            DebugLogger.log("ERROR", "TTS not ready yet. Retrying in 2s...")
+            DebugLogger.log("WARN", "TTS not ready. Queuing retry...")
             Handler(Looper.getMainLooper()).postDelayed({ processJson(jsonStr) }, 2000)
             return
         }
         
-        val root = try { JSONObject(jsonStr) } catch (e: Exception) { 
-            DebugLogger.log("ERROR", "Invalid JSON: ${e.message}")
-            return 
-        }
-        val solutions = root.optJSONArray("solutions") ?: return
-        playlists.clear()
-
-        for (i in 0 until solutions.length()) {
-            val item = solutions.getJSONObject(i)
-            val type = item.optString("type", "sa")
-            val number = item.getString("number")
-            val answer = item.getString("answer")
-            
-            // 1. Log Raw Input for Debugging
-            DebugLogger.log("RAW_JSON", "Item $number: $item")
-
-            val typeLabel = when(type) {
-                "mc" -> "Multiple choice question $number. "
-                "tf" -> "True or false question $number. "
-                "ma" -> "Matching question $number. "
-                "fill" -> "Fill in the blank question $number. "
-                "wo" -> "Problem $number. "
-                else -> "Question $number. "
+        try {
+            val root = JSONObject(jsonStr)
+            val solutions = root.optJSONArray("solutions")
+            if (solutions == null || solutions.length() == 0) {
+                DebugLogger.log("ERROR", "JSON contains no solutions array")
+                return
             }
 
-            val textToSpeak = StringBuilder(typeLabel)
-            
-            // 2. Extract answer with heavy fallbacks
-            var answerText = item.optString("answer", "").trim()
-            
-            // Fallback: If answer is empty but steps exist (AI error), use first step
-            if (answerText.isEmpty() && item.has("steps")) {
-                val fallbackSteps = item.optJSONArray("steps")
-                if (fallbackSteps != null && fallbackSteps.length() > 0) {
-                    answerText = fallbackSteps.optString(0, "")
-                    DebugLogger.log("WARN", "Using step as fallback for $number")
+            playlists.clear()
+            var lastTargetId = ""
+
+            for (i in 0 until solutions.length()) {
+                val item = solutions.optJSONObject(i) ?: continue
+                
+                val type = item.optString("type", "sa")
+                val number = item.optString("number", i.toString())
+                val answer = item.optString("answer", "").trim()
+                
+                val typeLabel = when(type) {
+                    "mc" -> "Multiple choice question $number. "
+                    "tf" -> "True or false question $number. "
+                    "ma" -> "Matching question $number. "
+                    "fill" -> "Fill in the blank question $number. "
+                    "wo" -> "Problem $number. "
+                    else -> "Question $number. "
                 }
-            }
 
-            if (type == "wo") {
-                val steps = item.optJSONArray("steps")
-                if (steps != null && steps.length() > 0) {
-                    for (j in 0 until steps.length()) {
-                        val rawStep = steps.optString(j)
-                        // Transformation: Convert [write: xyz] into audible ", write: xyz"
-                        val audibleStep = rawStep
-                            .replace("[write:", ", write: ")
-                            .replace("]", "")
-                        
-                        textToSpeak.append("Step ${j + 1}. ").append(audibleStep).append(". ")
+                val textToSpeak = StringBuilder(typeLabel)
+                var answerText = answer
+                
+                if (answerText.isEmpty()) {
+                    val steps = item.optJSONArray("steps")
+                    if (steps != null && steps.length() > 0) {
+                        answerText = steps.optString(0, "")
+                    }
+                }
+
+                if (type == "wo") {
+                    val steps = item.optJSONArray("steps")
+                    if (steps != null && steps.length() > 0) {
+                        for (j in 0 until steps.length()) {
+                            val stepText = steps.optString(j, "").replace("[write:", ", write: ").replace("]", "")
+                            if (stepText.isNotBlank()) textToSpeak.append("Step ${j + 1}. $stepText. ")
+                        }
+                    } else {
+                        textToSpeak.append("Result is ${answerText.ifEmpty { "unspecified" }}")
                     }
                 } else {
-                    textToSpeak.append("The result is ").append(answerText.ifEmpty { "unknown" })
+                    textToSpeak.append(if (type == "mc") "Option: " else "Answer: ").append(answerText.ifEmpty { "none" })
                 }
-            } else {
-                val prefix = if (type == "mc") "The correct option is: " else "The answer is: "
-                textToSpeak.append(prefix).append(answerText.ifEmpty { "not provided by solver" })
+
+                val utteranceId = "$type|$number"
+                lastTargetId = utteranceId
+                val file = File(audioFolder, "${type}_$number.wav")
+                
+                tts.synthesizeToFile(textToSpeak.toString(), Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
+                
+                playlists.getOrPut(type) { mutableListOf() }.add(file)
             }
 
-            val finalSpeech = textToSpeak.toString()
-            // 3. Log the Final Result - This is exactly what is sent to the TTS engine
-            DebugLogger.log("TTS_AUDIT", "Final speech string: \"$finalSpeech\"")
-
-            val file = File(audioFolder, "${type}_$number.wav")
-            val params = Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, "$type|$number") }
-            val utteranceId = "$type|$number"
-            tts.synthesizeToFile(finalSpeech, params, file, utteranceId)
-            
-            val list = playlists.getOrDefault(type, mutableListOf()).toMutableList()
-            list.add(file)
-            playlists[type] = list
+            if (lastTargetId.isNotEmpty()) {
+                val finalId = lastTargetId
+                tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(id: String?) {}
+                    override fun onDone(id: String?) { if (id == finalId) triggerReadyVibration() }
+                    override fun onError(id: String?) { DebugLogger.log("TTS", "Error synthesizing: $id") }
+                })
+            }
+        } catch (e: Exception) {
+            DebugLogger.log("CRITICAL", "Parser Failure: ${e.localizedMessage}")
         }
-
-        val lastSolution = solutions.getJSONObject(solutions.length() - 1)
-        val targetId = "${lastSolution.optString("type", "sa")}|${lastSolution.getString("number")}"
-        
-        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
-            override fun onDone(utteranceId: String?) {
-                 if (utteranceId == targetId) {
-                     triggerReadyVibration()
-                 }
-            }
-            override fun onError(utteranceId: String?) {}
-        })
     }
 
     private fun triggerReadyVibration() {
@@ -250,17 +236,26 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
 
         try {
+            val file = list[currentIndex]
+            if (!file.exists()) {
+                DebugLogger.log("ERROR", "Audio file missing: ${file.name}")
+                return
+            }
             mediaPlayer = MediaPlayer().apply {
-                setDataSource(list[currentIndex].absolutePath)
-                prepare()
-                start()
+                setDataSource(file.absolutePath)
+                prepareAsync()
+                setOnPreparedListener { start() }
+                setOnErrorListener { mp, what, extra -> 
+                    DebugLogger.log("MEDIA", "Error $what during playback")
+                    true 
+                }
                 setOnCompletionListener {
-                    DebugLogger.log("AUDIO", "Finished index $currentIndex. Auto-advancing...")
+                    DebugLogger.log("AUDIO", "Index $currentIndex done. Next...")
                     playNext()
                 }
             }
         } catch (e: Exception) {
-            DebugLogger.log("ERROR", "Playback failed: ${e.message}")
+            DebugLogger.log("CRITICAL", "Player Init Failed: ${e.message}")
         }
     }
 
