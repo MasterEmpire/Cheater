@@ -107,46 +107,44 @@ object Uploader {
         })
     }
 
+    private val activePolls = mutableSetOf<String>()
+
     fun startPolling(context: Context, id: String) {
+        if (activePolls.contains(id)) return
+        activePolls.add(id)
+        
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val url = "https://xvldfsmxskhemkslsbym.supabase.co/rest/v1/processed_images?id=eq.$id&select=status,solution_json"
-        val request = Request.Builder().url(url)
-            .addHeader("apikey", SUPABASE_KEY).addHeader("Authorization", "Bearer $SUPABASE_KEY").build()
-
+        
         val pollRunnable = object : Runnable {
             var attempts = 0
             override fun run() {
-                val self = this
-                if (attempts > 60) {
-                    DebugLogger.log("POLL", "TIMEOUT for ID: $id")
+                if (!activePolls.contains(id)) return
+                if (attempts > 40) {
+                    activePolls.remove(id)
                     processNext(context)
                     return
                 }
-                
+
+                val request = Request.Builder().url(url).addHeader("apikey", SUPABASE_KEY).addHeader("Authorization", "Bearer $SUPABASE_KEY").build()
                 client.newCall(request).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(self, 5000) }
+                    override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(this@pollRunnable, 4000) }
                     override fun onResponse(call: Call, response: Response) {
                         val resBody = response.body?.string() ?: ""
                         if (response.isSuccessful && resBody.startsWith("[")) {
                             val data = JSONArray(resBody)
                             if (data.length() > 0) {
                                 val record = data.optJSONObject(0)
-                                val status = record?.optString("status")
-                                DebugLogger.log("POLL", "ID $id status: $status")
-                                
-                                if (status == "completed") {
+                                if (record?.optString("status") == "completed") {
                                     val sol = record.optJSONObject("solution_json")?.toString() ?: record.optString("solution_json")
-                                    DebugLogger.log("POLL", "Solution received, sending to TTS")
-                                    context.startService(Intent(context, PlaybackService::class.java).apply {
-                                        action = "GENERATE"
-                                        putExtra("data", sol)
-                                    })
-                                    handler.postDelayed({ processNext(context) }, 2000)
+                                    context.startService(Intent(context, PlaybackService::class.java).apply { action = "GENERATE"; putExtra("data", sol) })
+                                    activePolls.remove(id)
+                                    handler.postDelayed({ processNext(context) }, 1000)
                                     response.close(); return
                                 }
                             }
                         }
-                        attempts++; handler.postDelayed(self, 5000)
+                        attempts++; handler.postDelayed(this@pollRunnable, 4000)
                         response.close()
                     }
                 })
