@@ -184,6 +184,7 @@ class KeyInterceptService : AccessibilityService() {
                 DebugLogger.log("GESTURE", "Pinch FAILED: Cancelled by OS")
             }
         }, null)
+    }
 
     private fun smartShutterClick() {
         logUiHierarchy() // Diagnose what we see
