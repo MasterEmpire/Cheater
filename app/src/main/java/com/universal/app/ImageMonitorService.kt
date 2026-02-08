@@ -86,30 +86,24 @@ class ImageMonitorService : Service() {
         val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATA)
         val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
         
-        contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, null, null, sortOrder)?.use { cursor ->
-            if (cursor.moveToFirst()) {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val lastId = prefs.getLong("last_image_id", -1)
+        
+        contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, "${MediaStore.Images.Media._ID} > ?", arrayOf(lastId.toString()), sortOrder)?.use { cursor ->
+            var maxId = lastId
+            while (cursor.moveToNext()) {
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
                 val path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
-                
-                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-                val lastId = prefs.getLong("last_image_id", -1)
+                if (id > maxId) maxId = id
 
-                if (id > lastId) {
-                    val file = File(path)
-                    DebugLogger.log("SCAN", "New image detected. Waiting for write...")
-                    
-                    // Delay to ensure Camera app finishes writing the file
-                    Handler(Looper.getMainLooper()).postDelayed({
-                        if (file.exists() && file.length() > 0) {
-                            DebugLogger.log("SCAN", "File ready (${file.length() / 1024}KB). Enqueueing: $path")
-                            Uploader.enqueueFiles(this@ImageMonitorService, listOf(file))
-                            prefs.edit().putLong("last_image_id", id).apply()
-                        } else {
-                            DebugLogger.log("SCAN", "File not ready or empty. Skipping.")
-                        }
-                    }, 2000)
-                }
+                val file = File(path)
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (file.exists() && file.length() > 100) {
+                        Uploader.enqueueFiles(this@ImageMonitorService, listOf(file))
+                    }
+                }, 1500)
             }
+            prefs.edit().putLong("last_image_id", maxId).apply()
         }
     }
 
