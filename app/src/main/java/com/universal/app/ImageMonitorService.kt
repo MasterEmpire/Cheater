@@ -40,6 +40,18 @@ class ImageMonitorService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val restartServiceIntent = Intent(applicationContext, this.javaClass)
+        restartServiceIntent.setPackage(packageName)
+        val restartServicePendingIntent = android.app.PendingIntent.getService(
+            applicationContext, 1, restartServiceIntent, 
+            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmService = applicationContext.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        alarmService.set(android.app.AlarmManager.ELAPSED_REALTIME, android.os.SystemClock.elapsedRealtime() + 1000, restartServicePendingIntent)
+        super.onTaskRemoved(rootIntent)
+    }
+
     private fun recoveryScan() {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val lastId = prefs.getLong("last_image_id", -1)
@@ -98,7 +110,8 @@ class ImageMonitorService : Service() {
 
 
     private fun createNotificationChannel() {
-        val serviceChannel = NotificationChannel(CHANNEL_ID, "Monitor Service", NotificationManager.IMPORTANCE_LOW)
+        val serviceChannel = NotificationChannel(CHANNEL_ID, "Monitor Service", NotificationManager.IMPORTANCE_HIGH)
+        serviceChannel.lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(serviceChannel)
     }
