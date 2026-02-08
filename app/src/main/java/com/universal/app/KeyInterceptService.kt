@@ -123,9 +123,11 @@ class KeyInterceptService : AccessibilityService() {
         
         if (currentPackage.contains("camera") || currentPackage.contains("lens")) {
             DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing via HOME.")
+            speak("Closing camera, returning to home screen", true)
             performGlobalAction(GLOBAL_ACTION_HOME)
         } else {
             DebugLogger.log("CAM_TOGGLE", "Launching Camera")
+            speak("Opening camera", true)
             val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
@@ -193,10 +195,12 @@ class KeyInterceptService : AccessibilityService() {
 
         if (lensNode != null) {
             DebugLogger.log("LENS", "Auto-Target Success")
+            speak("Wide lens activated")
             hapticPulse(50)
             lensNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
             DebugLogger.log("LENS", "Target Not Found. Dumping UI and using Pinch.")
+            speak("Automatic lens switch failed, attempting manual pinch")
             logUiHierarchy()
             performPinchFallback()
         }
@@ -241,12 +245,13 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (foundNode != null) {
-            val label = foundNode.viewIdResourceName ?: foundNode.contentDescription ?: "shutter"
-            DebugLogger.log("AUTO", "Smart Shutter: $label")
+            DebugLogger.log("AUTO", "Smart Shutter Active")
+            speak("Capturing image")
             hapticPulse(100)
             foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
             DebugLogger.log("AUTO", "Shutter Node Missing. Dumping UI & using Fallback.")
+            speak("Shutter button not found, using coordinate fallback")
             logUiHierarchy()
             clickShutterCoordinates()
         }
@@ -280,11 +285,21 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun triggerReset() {
+        speak("System reset, all data cleared", true)
         val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
         vibrator.vibrate(android.os.VibrationEffect.createOneShot(200, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
         
         val intent = Intent(this, PlaybackService::class.java)
         intent.action = "RESET"
+        startService(intent)
+    }
+
+    private fun speak(msg: String, immediate: Boolean = false) {
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = "SPEAK_STATUS"
+            putExtra("message", msg)
+            putExtra("immediate", immediate)
+        }
         startService(intent)
     }
 
