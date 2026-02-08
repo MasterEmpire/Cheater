@@ -161,7 +161,6 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens() {
-        logUiHierarchy()
         val root = rootInActiveWindow
         var lensNode: android.view.accessibility.AccessibilityNodeInfo? = null
 
@@ -173,13 +172,11 @@ class KeyInterceptService : AccessibilityService() {
                 val text = node.text?.toString()?.lowercase() ?: ""
                 val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                 
-                // Expanded keywords based on logs ("Ultra wide") and common camera UIs
                 val matches = listOf(".5", "0.5", "ultra", "wide").any { 
                     (text.contains(it) || desc.contains(it)) && !text.contains("1x") 
                 }
 
                 if (matches) {
-                    // Find the actual clickable ancestor if this node isn't clickable
                     var current: android.view.accessibility.AccessibilityNodeInfo? = node
                     while (current != null) {
                         if (current.isClickable) {
@@ -195,10 +192,12 @@ class KeyInterceptService : AccessibilityService() {
         }
 
         if (lensNode != null) {
-            DebugLogger.log("LENS", "Found 0.5x button. Clicking...")
+            DebugLogger.log("LENS", "Auto-Target Success")
+            hapticPulse(50)
             lensNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
-            DebugLogger.log("LENS", "0.5x button not found. Falling back to pinch.")
+            DebugLogger.log("LENS", "Target Not Found. Dumping UI and using Pinch.")
+            logUiHierarchy()
             performPinchFallback()
         }
     }
@@ -220,8 +219,6 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun smartShutterClick() {
-        logUiHierarchy() // Diagnose what we see
-
         val root = rootInActiveWindow
         var foundNode: android.view.accessibility.AccessibilityNodeInfo? = null
 
@@ -235,29 +232,29 @@ class KeyInterceptService : AccessibilityService() {
                 val id = node.viewIdResourceName?.lowercase() ?: ""
                 val desc = node.contentDescription?.toString()?.lowercase() ?: ""
                 
-                // DebugLogger.log("SCAN", "Node: $id / $desc") // Uncomment for verbose scan
-
-                val isMatch = targets.any { id.contains(it) || desc.contains(it) }
-                if (isMatch) {
-                    DebugLogger.log("SCAN", "Match Found: ID=$id Desc=$desc Clickable=${node.isClickable}")
-                    if (node.isClickable) {
-                        foundNode = node
-                        break
-                    }
+                if (targets.any { id.contains(it) || desc.contains(it) } && node.isClickable) {
+                    foundNode = node
+                    break
                 }
-                for (i in 0 until node.childCount) {
-                    node.getChild(i)?.let { queue.add(it) }
-                }
+                for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
             }
         }
 
         if (foundNode != null) {
-            DebugLogger.log("AUTO", "Smart Click: Found Shutter Node (${foundNode.viewIdResourceName})")
+            val label = foundNode.viewIdResourceName ?: foundNode.contentDescription ?: "shutter"
+            DebugLogger.log("AUTO", "Smart Shutter: $label")
+            hapticPulse(100)
             foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
-            DebugLogger.log("AUTO", "Smart Click: Node not found. Fallback to coordinates.")
+            DebugLogger.log("AUTO", "Shutter Node Missing. Dumping UI & using Fallback.")
+            logUiHierarchy()
             clickShutterCoordinates()
         }
+    }
+
+    private fun hapticPulse(ms: Long) {
+        val v = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
+        v.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     private fun clickShutterCoordinates() {
