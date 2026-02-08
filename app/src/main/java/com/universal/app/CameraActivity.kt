@@ -94,8 +94,9 @@ class CameraActivity : ComponentActivity() {
                 true
             }
             KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                notifyVoice("Sending ${capturedFiles.size} images", true)
-                capturedFiles.forEach { Uploader.uploadFile(applicationContext, it) }
+                if (capturedFiles.isNotEmpty()) {
+                    Uploader.enqueueFiles(applicationContext, capturedFiles.toList())
+                }
                 finish()
                 true
             }
