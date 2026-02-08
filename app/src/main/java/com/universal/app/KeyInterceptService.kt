@@ -12,6 +12,7 @@ class KeyInterceptService : AccessibilityService() {
     private var blockerOverlay: android.view.View? = null
     private var lastHeadsetClick = 0L
     private var headsetCount = 0
+    private var serviceWakeLock: android.os.PowerManager.WakeLock? = null
     private var lastUpTime = 0L
     private var upCount = 0
     private var lastDownTime = 0L
@@ -25,6 +26,9 @@ class KeyInterceptService : AccessibilityService() {
     private var isWaitingForDownTapHold = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        val pm = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        val isScreenOn = pm.isInteractive
+
         val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
         if (!prefs.getBoolean("is_active", false)) return false
         if (!prefs.getBoolean("keys_enabled", true)) return false
@@ -79,6 +83,10 @@ class KeyInterceptService : AccessibilityService() {
 
         if (action == KeyEvent.ACTION_UP) {
             if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
+                if (!isScreenOn) {
+                    wakeDevice(pm)
+                    speak("System active. Screen is on.", true)
+                }
                 val now = System.currentTimeMillis()
                 val useHeadsetTrigger = prefs.getBoolean("headset_trigger", false)
 
@@ -389,6 +397,17 @@ class KeyInterceptService : AccessibilityService() {
         startService(intent)
     }
 
+    private fun wakeDevice(pm: android.os.PowerManager) {
+        val wakeLock = pm.newWakeLock(
+            android.os.PowerManager.FULL_WAKE_LOCK or
+            android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
+            android.os.PowerManager.ON_AFTER_RELEASE,
+            "UniversalApp::WakeUp"
+        )
+        wakeLock.acquire(3000L) // Stay on for 3 seconds to ensure TTS starts
+        DebugLogger.log("SYSTEM", "WakeUp command issued via Headset")
+    }
+
     private fun logUiHierarchy() {
         val root = rootInActiveWindow ?: return
         DebugLogger.log("UI_DUMP", "--- Camera UI Start ---")
@@ -432,5 +451,15 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
     }
-    override fun onInterrupt() { removeTouchBlocker() }
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        val pm = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        serviceWakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ServiceKeepAlive")
+        serviceWakeLock?.acquire()
+    }
+
+    override fun onInterrupt() { 
+        serviceWakeLock?.release()
+        removeTouchBlocker() 
+    }
 }
