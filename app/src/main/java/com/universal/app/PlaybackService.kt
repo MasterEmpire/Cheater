@@ -51,6 +51,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action != "SPEAK_STATUS") {
+             DebugLogger.log("SVC", "Cmd Received: ${intent?.action} ${intent?.extras?.keySet()?.joinToString() ?: ""}")
+        }
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val isActive = prefs.getBoolean("is_active", false)
 
