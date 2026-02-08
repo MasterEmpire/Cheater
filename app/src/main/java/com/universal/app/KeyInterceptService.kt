@@ -6,6 +6,8 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 
 class KeyInterceptService : AccessibilityService() {
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var pendingClickRunnable: Runnable? = null
     private var lastUpTime = 0L
     private var upCount = 0
     private var lastDownTime = 0L
@@ -54,25 +56,27 @@ class KeyInterceptService : AccessibilityService() {
         if (action == KeyEvent.ACTION_UP) {
             if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
                 val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
-                if (!prefs.getBoolean("is_active", false)) {
-                    DebugLogger.log("HEADSET", "Ignored: System Inactive")
-                    return false
-                }
+                if (!prefs.getBoolean("is_active", false)) return false
 
-                val now = System.currentTimeMillis()
-                val gap = now - lastUpTime
-                
-                if (gap < 500) {
-                    DebugLogger.log("HEADSET", "Double Click Detected (Gap: ${gap}ms) -> Launching Camera")
+                if (pendingClickRunnable != null) {
+                    // Double Click detected: Cancel the single click action
+                    handler.removeCallbacks(pendingClickRunnable!!)
+                    pendingClickRunnable = null
+                    
+                    DebugLogger.log("HEADSET", "Double Click -> Launching Camera")
                     val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
-                    android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ prepareWideLens() }, 1500)
-                    lastUpTime = 0 // Reset to prevent triple-click confusion
+                    // Wait 1.5s for camera to load, then pinch
+                    handler.postDelayed({ prepareWideLens() }, 1500)
                 } else {
-                    DebugLogger.log("HEADSET", "Single Click Detected (Gap: ${gap}ms) -> Tapping Shutter")
-                    clickShutter()
-                    lastUpTime = now
+                    // Potential Single Click: Wait 400ms to see if user clicks again
+                    pendingClickRunnable = Runnable {
+                        DebugLogger.log("HEADSET", "Single Click Executed -> Tapping Shutter")
+                        clickShutter()
+                        pendingClickRunnable = null
+                    }
+                    handler.postDelayed(pendingClickRunnable!!, 400)
                 }
                 return true
             }
