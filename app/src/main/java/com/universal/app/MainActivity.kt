@@ -26,6 +26,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -149,16 +150,6 @@ fun AppDashboard() {
             OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.weight(1f)) { Text("ACCESSIBILITY", fontSize = 10.sp) }
             OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) { Text("LOGS", fontSize = 10.sp) }
         }
-    }
-}
-
-@Composable
-fun SettingsToggle(label: String, state: MutableState<Boolean>, onValueChange: (Boolean) -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), color = Color.LightGray)
-        Switch(checked = state.value, onCheckedChange = { state.value = it; onValueChange(it) }, modifier = Modifier.scale(0.7f))
-    }
-}
 
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -264,4 +255,12 @@ private fun requestBatteryOptimization(context: Context) {
     val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
     intent.data = Uri.parse("package:${context.packageName}")
     context.startActivity(intent)
+}
+
+@Composable
+fun SettingsToggle(label: String, state: MutableState<Boolean>, onValueChange: (Boolean) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f), color = Color.LightGray)
+        Switch(checked = state.value, onCheckedChange = { state.value = it; onValueChange(it) }, modifier = Modifier.scale(0.7f))
+    }
 }
