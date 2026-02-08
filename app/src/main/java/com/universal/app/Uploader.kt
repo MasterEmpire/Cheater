@@ -117,6 +117,7 @@ object Uploader {
         val url = "https://xvldfsmxskhemkslsbym.supabase.co/rest/v1/processed_images?id=eq.$id&select=status,solution_json"
         
         val pollRunnable = object : Runnable {
+            val self = this
             var attempts = 0
             override fun run() {
                 if (!activePolls.contains(id)) return
@@ -128,7 +129,7 @@ object Uploader {
 
                 val request = Request.Builder().url(url).addHeader("apikey", SUPABASE_KEY).addHeader("Authorization", "Bearer $SUPABASE_KEY").build()
                 client.newCall(request).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(this@pollRunnable, 4000) }
+                    override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(self, 4000) }
                     override fun onResponse(call: Call, response: Response) {
                         val resBody = response.body?.string() ?: ""
                         if (response.isSuccessful && resBody.startsWith("[")) {
@@ -144,7 +145,7 @@ object Uploader {
                                 }
                             }
                         }
-                        attempts++; handler.postDelayed(this@pollRunnable, 4000)
+                        attempts++; handler.postDelayed(self, 4000)
                         response.close()
                     }
                 })
