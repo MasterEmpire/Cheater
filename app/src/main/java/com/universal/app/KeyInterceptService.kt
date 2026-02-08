@@ -54,18 +54,23 @@ class KeyInterceptService : AccessibilityService() {
         if (action == KeyEvent.ACTION_UP) {
             if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK) {
                 val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
-                if (!prefs.getBoolean("is_active", false)) return false
+                if (!prefs.getBoolean("is_active", false)) {
+                    DebugLogger.log("HEADSET", "Ignored: System Inactive")
+                    return false
+                }
 
                 val now = System.currentTimeMillis()
-                if (now - lastUpTime < 500) {
-                    // Double click: Open System Camera & Prepare Wide
+                val gap = now - lastUpTime
+                
+                if (gap < 500) {
+                    DebugLogger.log("HEADSET", "Double Click Detected (Gap: ${gap}ms) -> Launching Camera")
                     val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     startActivity(intent)
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ prepareWideLens() }, 1500)
-                    lastUpTime = 0 // Reset
+                    lastUpTime = 0 // Reset to prevent triple-click confusion
                 } else {
-                    // Single click: Shutter
+                    DebugLogger.log("HEADSET", "Single Click Detected (Gap: ${gap}ms) -> Tapping Shutter")
                     clickShutter()
                     lastUpTime = now
                 }
