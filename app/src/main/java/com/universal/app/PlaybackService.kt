@@ -132,7 +132,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 val type = item.optString("type", "sa")
                 val rawNum = item.optString("number", i.toString())
                 val number = rawNum.padStart(3, '0')
-                val text = item.optString("answer", "").ifEmpty { item.optJSONArray("steps")?.optString(0, "") ?: "" }
+                
+                // Collect all steps into one string
+                val stepsArray = item.optJSONArray("steps")
+                val stepsBuilder = StringBuilder()
+                if (stepsArray != null) {
+                    for (j in 0 until stepsArray.length()) {
+                        stepsBuilder.append(stepsArray.optString(j)).append(". ")
+                    }
+                }
+                val allSteps = stepsBuilder.toString()
+                val finalAnswer = item.optString("answer", "")
 
                 val typeName = when(type) {
                     "wo" -> "Worked out solution"
@@ -144,7 +154,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     else -> "Question"
                 }
                 
-                val speech = "$typeName number $rawNum. Answer: $text"
+                // Combine Steps + Answer for a complete reading
+                val speech = if (type == "wo") {
+                    "$typeName number $rawNum. $allSteps In conclusion: $finalAnswer"
+                } else {
+                    "$typeName number $rawNum. Answer: $finalAnswer"
+                }
                 val fileName = "${type}_${batchId}_${number}.wav"
                 val file = File(audioFolder, fileName)
                 val utteranceId = fileName
