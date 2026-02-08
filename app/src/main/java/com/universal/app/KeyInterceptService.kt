@@ -21,6 +21,11 @@ class KeyInterceptService : AccessibilityService() {
         val action = event.action
         val duration = event.eventTime - event.downTime
         val isLongPress = duration > 1000
+        
+        if (event.repeatCount == 0) {
+            val actStr = if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"
+            DebugLogger.log("KEY", "$actStr Code:$keyCode Long:$isLongPress")
+        }
 
         if (action == KeyEvent.ACTION_DOWN) {
             if (event.repeatCount > 0) return true // Ignore auto-repeat when holding button
@@ -89,6 +94,7 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun handlePress(key: String, count: Int, isLong: Boolean) {
+        DebugLogger.log("KEY_LOGIC", "Decided: $key (Count: $count, Long: $isLong)")
         val intent = Intent(this, PlaybackService::class.java)
         
         if (key == "UP") {
