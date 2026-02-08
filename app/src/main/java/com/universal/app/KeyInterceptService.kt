@@ -1,7 +1,9 @@
 package com.universal.app
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.Intent
+import android.graphics.Path
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 
@@ -174,11 +176,11 @@ class KeyInterceptService : AccessibilityService() {
         val gesture = android.accessibilityservice.GestureDescription.Builder()
             .addStroke(stroke1).addStroke(stroke2).build()
         
-        dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+        dispatchGesture(gesture, object : GestureDescription.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) {
                 DebugLogger.log("GESTURE", "Pinch SUCCESS")
             }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+            override fun onCancelled(gestureDescription: GestureDescription) {
                 DebugLogger.log("GESTURE", "Pinch FAILED: Cancelled by OS")
             }
         }, null)
@@ -230,16 +232,16 @@ class KeyInterceptService : AccessibilityService() {
         val x = metrics.widthPixels / 2f
         val y = metrics.heightPixels - 200f
 
-        val clickPath = android.graphics.Path().apply { moveTo(x, y) }
-        val gesture = android.accessibilityservice.GestureDescription.Builder()
-            .addStroke(android.accessibilityservice.GestureDescription.StrokeDescription(clickPath, 0, 50))
+        val clickPath = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
             .build()
 
-        dispatchGesture(gesture, object : android.accessibilityservice.GestureDescription.GestureResultCallback() {
-            override fun onCompleted(gestureDescription: android.accessibilityservice.GestureDescription?) {
+        dispatchGesture(gesture, object : GestureDescription.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) {
                 DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
             }
-            override fun onCancelled(gestureDescription: android.accessibilityservice.GestureDescription?) {
+            override fun onCancelled(gestureDescription: GestureDescription) {
                 DebugLogger.log("COORD_CLICK", "Point Click FAILED at $x, $y")
             }
         }, null)
