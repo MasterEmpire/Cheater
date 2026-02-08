@@ -72,8 +72,8 @@ class KeyInterceptService : AccessibilityService() {
                 } else {
                     // Potential Single Click: Wait 400ms to see if user clicks again
                     pendingClickRunnable = Runnable {
-                        DebugLogger.log("HEADSET", "Single Click Executed -> Tapping Shutter")
-                        clickShutter()
+                        DebugLogger.log("HEADSET", "Single Click Executed -> Scan & Snap")
+                        smartShutterClick()
                         pendingClickRunnable = null
                     }
                     handler.postDelayed(pendingClickRunnable!!, 400)
@@ -130,6 +130,7 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens() {
+        logUiHierarchy() // Log UI right before pinching to see initial state
         val metrics = resources.displayMetrics
         val centerX = metrics.widthPixels / 2f
         val centerY = metrics.heightPixels / 2f
@@ -148,7 +149,46 @@ class KeyInterceptService : AccessibilityService() {
         DebugLogger.log("AUTO", "Wide-lens pinch triggered")
     }
 
-    private fun clickShutter() {
+    private fun smartShutterClick() {
+        logUiHierarchy() // Diagnose what we see
+
+        val root = rootInActiveWindow
+        var foundNode: android.view.accessibility.AccessibilityNodeInfo? = null
+
+        if (root != null) {
+            val targets = listOf("shutter", "take picture", "capture", "camera_shutter", "bottom_bar_shutter")
+            val queue = java.util.LinkedList<android.view.accessibility.AccessibilityNodeInfo>()
+            queue.add(root)
+            
+            while (!queue.isEmpty()) {
+                val node = queue.poll() ?: continue
+                val id = node.viewIdResourceName?.lowercase() ?: ""
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                
+                // DebugLogger.log("SCAN", "Node: $id / $desc") // Uncomment for verbose scan
+
+                if (targets.any { id.contains(it) || desc.contains(it) }) {
+                    if (node.isClickable) {
+                        foundNode = node
+                        break
+                    }
+                }
+                for (i in 0 until node.childCount) {
+                    node.getChild(i)?.let { queue.add(it) }
+                }
+            }
+        }
+
+        if (foundNode != null) {
+            DebugLogger.log("AUTO", "Smart Click: Found Shutter Node (${foundNode.viewIdResourceName})")
+            foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+        } else {
+            DebugLogger.log("AUTO", "Smart Click: Node not found. Fallback to coordinates.")
+            clickShutterCoordinates()
+        }
+    }
+
+    private fun clickShutterCoordinates() {
         val metrics = resources.displayMetrics
         val x = metrics.widthPixels / 2f
         val y = metrics.heightPixels - 200f // Common shutter location
@@ -159,7 +199,32 @@ class KeyInterceptService : AccessibilityService() {
             .build()
         
         dispatchGesture(gesture, null, null)
-        DebugLogger.log("AUTO", "Shutter tap at $x, $y")
+    }
+
+    private fun logUiHierarchy() {
+        val root = rootInActiveWindow ?: return
+        DebugLogger.log("UI_DUMP", "--- Camera UI Start ---")
+        recursiveLog(root, 0)
+        DebugLogger.log("UI_DUMP", "--- Camera UI End ---")
+    }
+
+    private fun recursiveLog(node: android.view.accessibility.AccessibilityNodeInfo, depth: Int) {
+        if (depth > 10) return // Prevent deep recursion stack overflow
+        val sb = StringBuilder()
+        repeat(depth) { sb.append("  ") }
+        sb.append(node.className)
+        if (node.viewIdResourceName != null) sb.append(" ID:${node.viewIdResourceName}")
+        if (node.contentDescription != null) sb.append(" Desc:${node.contentDescription}")
+        if (node.isClickable) sb.append(" [CLICKABLE]")
+        
+        // Log significant nodes only to save spam, or all if debugging
+        if (node.viewIdResourceName != null || node.isClickable) {
+             DebugLogger.log("UI_NODE", sb.toString())
+        }
+        
+        for (i in 0 until node.childCount) {
+            node.getChild(i)?.let { recursiveLog(it, depth + 1) }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
