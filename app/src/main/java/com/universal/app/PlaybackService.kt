@@ -51,6 +51,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val isActive = prefs.getBoolean("is_active", false)
+
+        if (intent == null && isActive) {
+            DebugLogger.log("SYSTEM", "Resurrected after crash. Resuming...")
+            rebuildPlaylistsAndResume()
+        }
+
         val action = intent?.action
         val data = intent?.getStringExtra("data")
         DebugLogger.log("PLAYBACK", "Action Received: $action")
@@ -231,6 +239,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun playType(type: String) {
         currentType = type
         currentIndex = 0
+        savePlaybackState()
         playCurrent()
     }
 
@@ -240,6 +249,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             return
         }
         currentIndex++
+        savePlaybackState()
         playCurrent()
     }
 
@@ -319,6 +329,45 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         audioFolder.deleteRecursively()
         audioFolder.mkdirs()
         DebugLogger.log("SYSTEM", "Playback Reset")
+    }
+
+    private fun savePlaybackState() {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        prefs.edit().apply {
+            putString("last_type", currentType)
+            putInt("last_index", currentIndex)
+            apply()
+        }
+    }
+
+    private fun rebuildPlaylistsAndResume() {
+        if (!audioFolder.exists()) return
+        
+        val files = audioFolder.listFiles()?.filter { it.extension == "wav" } ?: return
+        playlists.clear()
+        
+        // Reconstruct playlists from filenames: type_number.wav
+        files.forEach { file ->
+            val parts = file.nameWithoutExtension.split("_")
+            if (parts.size >= 2) {
+                val type = parts[0]
+                playlists.getOrPut(type) { mutableListOf() }.add(file)
+            }
+        }
+
+        // Sort each category to ensure order
+        playlists.forEach { (key, list) ->
+            (list as MutableList).sortBy { it.name }
+        }
+
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        currentType = prefs.getString("last_type", null)
+        currentIndex = prefs.getInt("last_index", 0)
+
+        if (currentType != null) {
+            DebugLogger.log("RECOVERY", "Resuming $currentType at index $currentIndex")
+            playCurrent()
+        }
     }
 
     private fun createNotification(title: String, text: String): Notification {
