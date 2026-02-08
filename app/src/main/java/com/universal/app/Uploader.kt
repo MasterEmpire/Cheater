@@ -75,9 +75,13 @@ object Uploader {
         val pollRunnable = object : Runnable {
             var attempts = 0
             override fun run() {
+                val self = this
                 if (attempts > 40) return
                 client.newCall(request).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(this@run, 5000) }
+                    override fun onFailure(call: Call, e: IOException) { 
+                        attempts++
+                        handler.postDelayed(self, 5000) 
+                    }
                     override fun onResponse(call: Call, response: Response) {
                         val resBody = response.body?.string() ?: ""
                         val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
@@ -85,20 +89,23 @@ object Uploader {
                         if (response.isSuccessful && resBody.startsWith("[")) {
                             val data = JSONArray(resBody)
                             if (data.length() > 0) {
-                                val record = data.getJSONObject(0)
-                                if (record.optString("status") == "completed") {
-                                    if (!prefs.getBoolean("is_active", false)) { response.close(); return }
-                                    
-                                    val sol = record.optJSONObject("solution_json")?.toString() ?: record.optString("solution_json")
-                                    context.startService(Intent(context, PlaybackService::class.java).apply {
-                                        action = "GENERATE"
-                                        putExtra("data", sol)
-                                    })
-                                    response.close(); return
+                                val record = data.optJSONObject(0)
+                                if (record?.optString("status") == "completed") {
+                                    if (prefs.getBoolean("is_active", false)) {
+                                        val sol = record.optJSONObject("solution_json")?.toString() ?: record.optString("solution_json")
+                                        val intent = Intent(context, PlaybackService::class.java).apply {
+                                            action = "GENERATE"
+                                            putExtra("data", sol)
+                                        }
+                                        context.startService(intent)
+                                    }
+                                    response.close()
+                                    return
                                 }
                             }
                         }
-                        attempts++; handler.postDelayed(this@run, 5000)
+                        attempts++
+                        handler.postDelayed(self, 5000)
                         response.close()
                     }
                 })
