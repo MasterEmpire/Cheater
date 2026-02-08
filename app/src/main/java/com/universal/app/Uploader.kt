@@ -104,20 +104,27 @@ object Uploader {
                         handler.postDelayed(self, 5000)
                     }
                     override fun onResponse(call: Call, response: Response) {
-                        val resBody = response.body?.string() ?: "[]"
-                        if (!response.isSuccessful) {
-                            DebugLogger.log("POLL", "HTTP Error ${response.code}")
-                            attempts++
-                            handler.postDelayed(self, 5000)
-                            response.close()
-                            return
+                        val resBody = response.body?.string()?.trim() ?: ""
+                        if (!response.isSuccessful || resBody.isEmpty()) {
+                            DebugLogger.log("POLL", "Server unreachable or empty. Retry $attempts")
+                            attempts++; handler.postDelayed(self, 5000)
+                            response.close(); return
                         }
 
                         try {
+                            // Robust check: Is this even a JSON array?
+                            if (!resBody.startsWith("[")) {
+                                DebugLogger.log("POLL", "Unexpected response format: $resBody")
+                                attempts++; handler.postDelayed(self, 5000)
+                                response.close(); return
+                            }
+
                             val data = JSONArray(resBody)
                             if (data.length() > 0) {
-                                val record = data.getJSONObject(0)
-                                if (record.getString("status") == "completed") {
+                                val record = data.optJSONObject(0) ?: throw Exception("Invalid record object")
+                                val status = record.optString("status", "pending")
+                                
+                                if (status == "completed") {
                                     val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                                     val processedIds = prefs.getStringSet("processed_ids", mutableSetOf()) ?: mutableSetOf()
                                     
@@ -126,9 +133,14 @@ object Uploader {
                                         response.close(); return
                                     }
 
-                                    DebugLogger.log("POLL", "New solution for $id. Sending to TTS.")
-                                    val solutionData = record.optJSONObject("solution_json")?.toString() 
-                                        ?: record.optString("solution_json")
+                                    DebugLogger.log("POLL", "Solution $id confirmed. Processing...")
+                                    val solutionObj = record.optJSONObject("solution_json")
+                                    val solutionData = solutionObj?.toString() ?: record.optString("solution_json", "")
+                                    
+                                    if (solutionData.isBlank()) {
+                                        DebugLogger.log("ERROR", "Record completed but solution_json is missing")
+                                        response.close(); return
+                                    }
                                     
                                     val intent = Intent(context, PlaybackService::class.java).apply {
                                         action = "GENERATE"
