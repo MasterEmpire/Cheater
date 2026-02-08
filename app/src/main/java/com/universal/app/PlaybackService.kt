@@ -100,7 +100,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 val number = item.optString("number", i.toString())
                 val text = item.optString("answer", "").ifEmpty { item.optJSONArray("steps")?.optString(0, "") ?: "" }
                 
-                val speech = "Question $number. Answer: $text"
+                val typeName = when(type) {
+                    "wo" -> "Worked out solution"
+                    "tf" -> "True or False question"
+                    "mc" -> "Multiple Choice question"
+                    "ma" -> "Matching question"
+                    "fill" -> "Fill in the blank question"
+                    "sa" -> "Short Answer question"
+                    else -> "Question"
+                }
+                
+                val speech = "$typeName number $number. Answer: $text"
                 val file = File(audioFolder, "${type}_$number.wav")
                 val utteranceId = "$type|$number"
                 
