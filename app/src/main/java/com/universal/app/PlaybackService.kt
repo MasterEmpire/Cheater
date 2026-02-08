@@ -149,6 +149,21 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playType(type: String) {
+        val list = playlists[type]
+        if (list.isNullOrEmpty()) {
+            val readableType = when(type) {
+                "wo" -> "worked out solutions"
+                "tf" -> "true or false"
+                "sa" -> "short answers"
+                "mc" -> "multiple choice"
+                "ma" -> "matching"
+                "fill" -> "fill in the blanks"
+                else -> type
+            }
+            speakStatus("$readableType not available", true)
+            DebugLogger.log("PLAYBACK", "Attempted to play empty category: $type")
+            return
+        }
         currentType = type
         currentIndex = 0
         savePlaybackState()
