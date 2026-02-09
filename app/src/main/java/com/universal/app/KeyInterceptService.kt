@@ -25,11 +25,11 @@ class KeyInterceptService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var blockerOverlay: View? = null
     private var lastHeadsetClick = 0L
-    private var headsetCount = 0
+    private var gestureSequence = ""
     private var lastHeadsetDownTime = 0L
     private val headsetGestureRunnable = Runnable { 
-        processHeadsetGesture(headsetCount, false)
-        headsetCount = 0
+        processHeadsetGesture(gestureSequence)
+        gestureSequence = ""
     }
     private var serviceWakeLock: PowerManager.WakeLock? = null
     private var lastUpTime = 0L
@@ -77,24 +77,20 @@ class KeyInterceptService : AccessibilityService() {
             if (action == KeyEvent.ACTION_DOWN) {
                 if (event.repeatCount == 0) {
                     lastHeadsetDownTime = event.eventTime
-                    // Pulse WakeLock immediately to ensure CPU handles the return true fast enough
                     val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
                     val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::KeyHijack")
                     wl.acquire(500)
                 }
-                return true // Hijack Assistant
+                return true 
             }
             if (action == KeyEvent.ACTION_UP) {
                 val duration = event.eventTime - lastHeadsetDownTime
-                if (duration > 600) {
-                    handler.removeCallbacks(headsetGestureRunnable)
-                    headsetCount = 0
-                    processHeadsetGesture(0, true)
-                } else {
-                    headsetCount++
-                    handler.removeCallbacks(headsetGestureRunnable)
-                    handler.postDelayed(headsetGestureRunnable, 450)
-                }
+                handler.removeCallbacks(headsetGestureRunnable)
+                
+                // Append 'L' for Long, 'S' for Short to the sequence string
+                gestureSequence += if (duration > 600) "L" else "S"
+                
+                handler.postDelayed(headsetGestureRunnable, 450)
                 return true
             }
         }
@@ -433,18 +429,23 @@ class KeyInterceptService : AccessibilityService() {
         startActivity(intent)
     }
 
-    private fun processHeadsetGesture(count: Int, isLong: Boolean) {
-        val gestureName = when {
-            isLong -> "Long press detected"
-            count == 1 -> "Single press detected"
-            count == 2 -> "Double press detected"
-            count == 3 -> "Triple press detected"
-            else -> "$count presses detected"
+    private fun processHeadsetGesture(sequence: String) {
+        if (sequence.isEmpty()) return
+
+        val gestureName = when (sequence) {
+            "S" -> "Single press detected"
+            "L" -> "Long press detected"
+            "SS" -> "Double press detected"
+            "SSS" -> "Triple press detected"
+            "SL" -> "Single press followed by long press"
+            "SSL" -> "Double press followed by long press"
+            "LS" -> "Long press followed by single press"
+            "LSS" -> "Long press followed by double press"
+            else -> "Sequence $sequence detected"
         }
         
-        DebugLogger.log("HEADSET_GESTURE", "Action: $gestureName")
+        DebugLogger.log("HEADSET_GESTURE", "Sequence: $sequence -> $gestureName")
         
-        // Special handling: if screen is off, any headset gesture should first trigger wake
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         if (!pm.isInteractive) {
             wakeDevice(pm)
