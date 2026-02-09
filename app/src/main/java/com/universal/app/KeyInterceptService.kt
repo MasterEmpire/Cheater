@@ -45,6 +45,7 @@ class KeyInterceptService : AccessibilityService() {
     private var isWaitingForDownTapHold = false
     private var lastCameraPackage = ""
     private var isLensSwitchPending = false
+    private var isEarphoneNavMode = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -147,6 +148,18 @@ class KeyInterceptService : AccessibilityService() {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
                     val duration = event.eventTime - event.downTime
+                    if (duration > 2500) {
+                        // Master Toggle for Earphone Navigation Mode
+                        isEarphoneNavMode = !isEarphoneNavMode
+                        val status = if (isEarphoneNavMode) "Earphone Navigation Activated" else "Earphone Navigation Deactivated"
+                        DebugLogger.log("MODE", status)
+                        speak(status, true)
+                        hapticPulse(300)
+                        isWaitingForTapHold = false
+                        upCount = 0
+                        return true
+                    }
+                    
                     if (isWaitingForTapHold && duration > 500) {
                         toggleCamera()
                         isWaitingForTapHold = false
@@ -431,27 +444,39 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun processHeadsetGesture(sequence: String) {
         if (sequence.isEmpty()) return
-
-        val gestureName = when (sequence) {
-            "S" -> "Single press detected"
-            "L" -> "Long press detected"
-            "SS" -> "Double press detected"
-            "SSS" -> "Triple press detected"
-            "SL" -> "Single press followed by long press"
-            "SSL" -> "Double press followed by long press"
-            "LS" -> "Long press followed by single press"
-            "LSS" -> "Long press followed by double press"
-            else -> "Sequence $sequence detected"
-        }
-        
-        DebugLogger.log("HEADSET_GESTURE", "Sequence: $sequence -> $gestureName")
-        
+        val intent = Intent(this, PlaybackService::class.java)
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        if (!pm.isInteractive) {
-            wakeDevice(pm)
-        }
 
-        speak(gestureName, true)
+        if (isEarphoneNavMode) {
+            // Navigation Mode Logic
+            when (sequence) {
+                "S" -> intent.action = "PAUSE"
+                "SS" -> intent.action = "NEXT"
+                "SSS" -> intent.action = "NEXT_CATEGORY"
+                "SL" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "tf") }
+                "LS" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "mc") }
+                "SSL" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "sa") }
+                "LSS" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "wo") }
+                "SSSL" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "fill") }
+                else -> speak("Unknown navigation sequence")
+            }
+            if (intent.action != null) startService(intent)
+        } else {
+            // Standby/System Mode Logic (Camera, Wake, etc.)
+            when (sequence) {
+                "S" -> {
+                    if (!pm.isInteractive) wakeDevice(pm) else smartShutterClick()
+                }
+                "SS" -> toggleCamera()
+                "L" -> speak("System ready. Long press detected.", true)
+                else -> {
+                    val desc = "$sequence detected"
+                    speak(desc, true)
+                }
+            }
+        }
+        
+        DebugLogger.log("HEADSET_NAV", "Mode: $isEarphoneNavMode, Seq: $sequence")
     }
 
     private fun logUiHierarchy() {
