@@ -151,9 +151,13 @@ fun AppDashboard() {
 
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { requestBatteryOptimization(context) }, modifier = Modifier.weight(1f)) { Text("BATTERY", fontSize = 10.sp) }
+            OutlinedButton(onClick = { 
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                context.startActivity(intent)
+            }, modifier = Modifier.weight(1f)) { Text("OVERLAY", fontSize = 10.sp) }
             OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.weight(1f)) { Text("ACCESSIBILITY", fontSize = 10.sp) }
-            OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) { Text("LOGS", fontSize = 10.sp) }
         }
+        OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.fillMaxWidth()) { Text("VIEW INTERNAL LOGS", fontSize = 10.sp) }
 
         Spacer(modifier = Modifier.height(8.dp))
 
