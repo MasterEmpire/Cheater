@@ -77,7 +77,24 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                             synchronized(playlists) {
                                 playlists.values.forEach { it.sortBy { f -> f.name } }
                             }
-                            speakStatus("Solutions ready. Use volume keys to navigate.", false)
+                            
+                            val summary = StringBuilder("All solutions are now ready. ")
+                            synchronized(playlists) {
+                                playlists.forEach { (type, list) ->
+                                    val typeName = when(type) {
+                                        "mc" -> "multiple choice"
+                                        "tf" -> "true or false"
+                                        "wo" -> "worked out"
+                                        "sa" -> "short answer"
+                                        "ma" -> "matching"
+                                        "fill" -> "fill in the blanks"
+                                        else -> "general"
+                                    }
+                                    summary.append("${list.size} $typeName, ")
+                                }
+                            }
+                            summary.append("available.")
+                            speakStatus(summary.toString(), false)
                             triggerReadyVibration()
                         }
                     }
