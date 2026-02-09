@@ -289,8 +289,13 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens(): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: {
+            DebugLogger.log("LENS_ERR", "Root window is null - UI not ready")
+            return false
+        }()
+        
         var lensNode: AccessibilityNodeInfo? = null
+        val searchTerms = listOf(".5", "0.5", "ultra", "wide")
 
         val queue = LinkedList<AccessibilityNodeInfo>()
         queue.add(root)
@@ -298,33 +303,42 @@ class KeyInterceptService : AccessibilityService() {
             val node = queue.poll() ?: continue
             val text = node.text?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            val viewId = node.viewIdResourceName ?: ""
             
-            // Keep existing targeting logic exactly as requested
-            val matches = listOf(".5", "0.5", "ultra", "wide").any { 
-                (text.contains(it) || desc.contains(it)) && !text.contains("1x") 
-            }
+            val match = searchTerms.find { (text.contains(it) || desc.contains(it)) && !text.contains("1x") }
 
-            if (matches) {
+            if (match != null) {
+                DebugLogger.log("LENS_TRACE", "Match found! Term: '$match' | Text: '$text' | Desc: '$desc' | ID: $viewId")
+                
                 var current: AccessibilityNodeInfo? = node
-                while (current != null) {
+                var depth = 0
+                while (current != null && depth < 5) {
                     if (current.isClickable) {
                         lensNode = current
+                        DebugLogger.log("LENS_TRACE", "Found clickable wrapper at depth $depth")
                         break
                     }
                     current = current.parent
+                    depth++
                 }
-                if (lensNode != null) break
+                if (lensNode != null) break else DebugLogger.log("LENS_TRACE", "Match found but no clickable parent")
             }
+            
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
 
         return if (lensNode != null) {
-            DebugLogger.log("LENS", "Auto-Target Success")
-            speak("Wide lens activated")
-            hapticPulse(50)
-            lensNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
-            true
+            val result = lensNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            if (result) {
+                DebugLogger.log("LENS", "Action Dispatched: CLICK SUCCESS")
+                speak("Wide lens activated")
+                hapticPulse(50)
+            } else {
+                DebugLogger.log("LENS_ERR", "Action Dispatched but REJECTED by system")
+            }
+            result
         } else {
+            // No log here to prevent flooding during the 25 retries
             false
         }
     }
