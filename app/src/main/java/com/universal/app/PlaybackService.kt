@@ -165,7 +165,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun stopAllPlayback() {
         // Stop TTS
-        if (::tts.isInitialized) {
+        if (::tts.isInitialized && isReady) {
             tts.stop()
         }
         // Stop MediaPlayer
