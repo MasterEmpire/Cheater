@@ -148,13 +148,13 @@ class KeyInterceptService : AccessibilityService() {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
                     val duration = event.eventTime - event.downTime
-                    if (duration > 2500) {
+                    if (duration > 5000) {
                         // Master Toggle for Earphone Navigation Mode
                         isEarphoneNavMode = !isEarphoneNavMode
                         val status = if (isEarphoneNavMode) "Earphone Navigation Activated" else "Earphone Navigation Deactivated"
                         DebugLogger.log("MODE", status)
                         speak(status, true)
-                        hapticPulse(300)
+                        hapticPulse(500) // Longer vibration for master toggle
                         isWaitingForTapHold = false
                         upCount = 0
                         return true
