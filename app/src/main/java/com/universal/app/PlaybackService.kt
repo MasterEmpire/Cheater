@@ -272,12 +272,20 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playNext() {
-        val type = currentType ?: return
-        val list = playlists[type] ?: return
+        val type = currentType
+        if (type == null) {
+            speakStatus("No category selected. Hold the button to switch categories.", true)
+            return
+        }
+        
+        val list = playlists[type]
+        if (list.isNullOrEmpty()) {
+            speakStatus("This category is empty.", true)
+            return
+        }
         
         if (currentIndex >= list.size - 1) {
-            stopAllPlayback()
-            speakStatus("End of $type", false)
+            speakStatus("End of $type solutions.", true)
             return
         }
 
@@ -289,7 +297,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playNextCategory() {
         val types = playlists.keys.toList()
-        if (types.isEmpty()) return
+        if (types.isEmpty()) {
+            speakStatus("No categories available. Please upload an image for analysis.", true)
+            return
+        }
         
         val nextIndex = (types.indexOf(currentType) + 1) % types.size
         playType(types[nextIndex])
@@ -323,7 +334,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun pauseAudio() {
-        if (mediaPlayer?.isPlaying == true) mediaPlayer?.pause() else mediaPlayer?.start()
+        if (mediaPlayer == null && (currentType == null || playlists[currentType].isNullOrEmpty())) {
+            speakStatus("Nothing to play or pause.", true)
+            return
+        }
+        
+        if (mediaPlayer?.isPlaying == true) {
+            mediaPlayer?.pause()
+            speakStatus("Paused", true)
+        } else {
+            mediaPlayer?.start()
+            speakStatus("Resumed", true)
+        }
     }
 
     private fun resetEverything() {
