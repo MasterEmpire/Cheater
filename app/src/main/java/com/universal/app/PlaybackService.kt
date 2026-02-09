@@ -20,6 +20,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var mediaSession: MediaSessionCompat? = null
     private var mediaPlayer: MediaPlayer? = null
     private var silentPlayer: MediaPlayer? = null
+    private var isFocusHeld = false
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
     private var isProcessingBatch = false
@@ -365,12 +366,22 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun claimMediaFocus() {
+        if (isFocusHeld) return // Prevent Log/Focus Loop
+
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val result = audioManager.requestAudioFocus(
             { focusChange ->
-                DebugLogger.log("SESSION", "Focus Change: $focusChange")
-                if (focusChange != android.media.AudioManager.AUDIOFOCUS_GAIN) {
-                    handler.postDelayed({ claimMediaFocus() }, 500)
+                when (focusChange) {
+                    android.media.AudioManager.AUDIOFOCUS_LOSS,
+                    android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                        isFocusHeld = false
+                        DebugLogger.log("SESSION", "Focus Lost. Attempting recovery...")
+                        handler.postDelayed({ claimMediaFocus() }, 1000)
+                    }
+                    android.media.AudioManager.AUDIOFOCUS_GAIN -> {
+                        isFocusHeld = true
+                        DebugLogger.log("SESSION", "Focus Gained")
+                    }
                 }
             },
             android.media.AudioManager.STREAM_MUSIC,
@@ -378,18 +389,23 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         )
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            DebugLogger.log("SESSION", "Focus GRANTED. Blocking Assistant.")
+            isFocusHeld = true
+            DebugLogger.log("SESSION", "Hijack Success: Assistant Blocked")
             mediaSession?.isActive = true
             
             val state = PlaybackStateCompat.Builder()
-                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_FAST_FORWARD | PlaybackStateCompat.ACTION_REWIND)
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
                 .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
                 .build()
             mediaSession?.setPlaybackState(state)
-            startSilentLoop()
+            
+            if (silentPlayer == null || !silentPlayer!!.isPlaying) {
+                startSilentLoop()
+            }
         } else {
-            DebugLogger.log("SESSION", "Focus DENIED. Retrying...")
-            handler.postDelayed({ claimMediaFocus() }, 1000)
+            isFocusHeld = false
+            DebugLogger.log("SESSION", "Hijack Denied. Retrying...")
+            handler.postDelayed({ claimMediaFocus() }, 2000)
         }
     }
 
