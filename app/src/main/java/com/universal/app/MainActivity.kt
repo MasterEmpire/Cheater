@@ -151,6 +151,21 @@ fun AppDashboard() {
             OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.weight(1f)) { Text("LOGS", fontSize = 10.sp) }
         }
 
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Button(
+            onClick = { 
+                val intent = Intent(context, PlaybackService::class.java).apply { action = "CLAIM_FOCUS" }
+                context.startService(intent)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE))
+        ) {
+            Icon(Icons.Default.PlayArrow, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text("HIJACK MEDIA BUTTONS")
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = Color.Cyan)
