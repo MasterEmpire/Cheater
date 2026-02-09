@@ -510,6 +510,21 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun wakeDevice(pm: PowerManager) {
         try {
+            // --- Diagnostic Pre-Flight ---
+            val isOverlayAllowed = android.provider.Settings.canDrawOverlays(this)
+            val isPowerSave = pm.isPowerSaveMode
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            val isLocked = km.isKeyguardLocked
+            
+            val nManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val canUseFullScreen = if (Build.VERSION.SDK_INT >= 34) nManager.canUseFullScreenIntent() else true
+
+            DebugLogger.log("WAKE_DIAG", "State: Locked=$isLocked, PowerSave=$isPowerSave, Overlay=$isOverlayAllowed, FS_Intent=$canUseFullScreen")
+
+            if (!isOverlayAllowed) {
+                DebugLogger.log("WAKE_WARN", "Overlay permission MISSING. Activity launch will likely fail.")
+            }
+            
             DebugLogger.log("WAKE", "Executing Full-Screen Intent Wake Sequence")
             
             // 1. Prepare the intent for our WakeActivity
