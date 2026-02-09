@@ -24,6 +24,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var isProcessingBatch = false
     private var isReady = false
     private var wakeLock: PowerManager.WakeLock? = null
+    private var lastHeadsetTriggerTime = 0L
 
     private var currentType: String? = null
     private var currentIndex = 0
@@ -394,6 +395,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun handleHeadsetCommand() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastHeadsetTriggerTime < 2000) return // 2-second cooldown
+        lastHeadsetTriggerTime = now
+
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("is_active", false)) return
@@ -401,7 +406,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (!pm.isInteractive) {
             wakeDevice(pm)
         } else {
-            // Use a Broadcast that KeyInterceptService will hear to trigger a shutter click
             val intent = Intent("com.universal.app.HEADSET_TRIGGER_SHUTTER")
             sendBroadcast(intent)
         }
