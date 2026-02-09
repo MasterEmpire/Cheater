@@ -77,6 +77,10 @@ class KeyInterceptService : AccessibilityService() {
             if (action == KeyEvent.ACTION_DOWN) {
                 if (event.repeatCount == 0) {
                     lastHeadsetDownTime = event.eventTime
+                    // Pulse WakeLock immediately to ensure CPU handles the return true fast enough
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::KeyHijack")
+                    wl.acquire(500)
                 }
                 return true // Hijack Assistant
             }
