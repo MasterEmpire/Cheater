@@ -293,6 +293,10 @@ fun LogModal(onDismiss: () -> Unit) {
                     clipboardManager.setText(AnnotatedString(DebugLogger.getFullLog()))
                     Toast.makeText(context, "Logs copied", Toast.LENGTH_SHORT).show()
                 }) { Text("COPY ALL") }
+                TextButton(onClick = {
+                    DebugLogger.clear()
+                    Toast.makeText(context, "Logs cleared", Toast.LENGTH_SHORT).show()
+                }) { Text("CLEAR", color = MaterialTheme.colorScheme.error) }
                 TextButton(onClick = onDismiss) { Text("CLOSE") }
             }
         }
