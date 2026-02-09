@@ -491,19 +491,25 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
-            // Trigger ONLY when entering the camera from another app/home
-            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && lastCameraPackage != pkg) {
-                lastCameraPackage = pkg
-                isLensSwitchPending = true
-                DebugLogger.log("AUTO_CAM", "New Camera Session Started")
-                attemptLensSwitch(15) // Poll for 7.5 seconds to be safe
+            // Trigger if it's a window state change AND (new package OR previous automation finished)
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                if (lastCameraPackage != pkg || !isLensSwitchPending) {
+                    lastCameraPackage = pkg
+                    isLensSwitchPending = true
+                    DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
+                    attemptLensSwitch(15)
+                }
             }
-        } else if (pkg != "android" && !pkg.contains("systemui")) {
-            if (lastCameraPackage.isNotEmpty()) {
-                DebugLogger.log("AUTO_CAM", "Exited Camera")
-                lastCameraPackage = ""
-                isLensSwitchPending = false
-                removeTouchBlocker()
+        } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            // If we switch to ANY non-camera app (that isn't a system overlay), reset the session
+            val isSystem = pkg == "android" || pkg == "com.android.systemui"
+            if (!isCam && !isSystem && pkg.isNotEmpty()) {
+                if (lastCameraPackage.isNotEmpty()) {
+                    DebugLogger.log("AUTO_CAM", "Left camera for $pkg. Clearing session.")
+                    lastCameraPackage = ""
+                    isLensSwitchPending = false
+                    removeTouchBlocker()
+                }
             }
         }
     }
