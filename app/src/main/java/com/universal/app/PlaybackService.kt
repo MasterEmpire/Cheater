@@ -4,6 +4,8 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import android.os.*
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
@@ -14,6 +16,7 @@ import java.util.*
 
 class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
+    private var mediaSession: MediaSessionCompat? = null
     private var mediaPlayer: MediaPlayer? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
@@ -34,9 +37,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ScreenOffKeys")
         wakeLock?.acquire(3 * 60 * 60 * 1000L)
 
+        setupMediaSession()
+
         tts = TextToSpeech(this, this)
         if (!audioFolder.exists()) audioFolder.mkdirs()
-        val notification = createNotification("System Standby", "Waiting for content...")
+        val notification = createNotification("System Active", "Listening for headset commands...")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(2, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
@@ -335,6 +340,61 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun updateNotification(title: String, text: String) {
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(2, createNotification(title, text))
+    }
+
+    private fun setupMediaSession() {
+        mediaSession = MediaSessionCompat(this, "UniversalMediaSession").apply {
+            setCallback(object : MediaSessionCompat.Callback() {
+                override fun onMediaButtonEvent(mediaButtonEvent: Intent?): Boolean {
+                    val event = mediaButtonEvent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                    if (event?.action == KeyEvent.ACTION_UP) {
+                        DebugLogger.log("SESSION", "Headset Button Detected via MediaSession")
+                        handleHeadsetCommand()
+                    }
+                    return true
+                }
+            })
+            
+            val state = PlaybackStateCompat.Builder()
+                .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
+                .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1.0f)
+                .build()
+            setPlaybackState(state)
+            isActive = true
+        }
+        DebugLogger.log("SESSION", "MediaSession active and hijacking focus")
+    }
+
+    private fun handleHeadsetCommand() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!pm.isInteractive) {
+            wakeDevice(pm)
+            speakStatus("System active. Screen is on.", true)
+        } else {
+            // Forward to KeyInterceptService via intent if screen is already on
+            // or handle shutter logic here directly
+            val intent = Intent("com.universal.app.HEADSET_CLICK")
+            sendBroadcast(intent)
+        }
+    }
+
+    private fun wakeDevice(pm: PowerManager) {
+        try {
+            val wakeLock = pm.newWakeLock(
+                PowerManager.FULL_WAKE_LOCK or
+                PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                PowerManager.ON_AFTER_RELEASE,
+                "UniversalApp::WakeUp"
+            )
+            
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+            
+            wakeLock.acquire(3000L)
+            DebugLogger.log("WAKE", "Screen wake-up triggered via MediaSession")
+        } catch (e: Exception) {
+            DebugLogger.log("WAKE_ERR", "Error: ${e.message}")
+        }
     }
 
     private fun playSpecificFile(fileName: String) {
