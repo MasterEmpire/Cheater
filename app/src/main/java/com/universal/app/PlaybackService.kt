@@ -119,8 +119,30 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
             "SPEAK_STATUS" -> intent.getStringExtra("message")?.let { speakStatus(it, intent.getBooleanExtra("immediate", false)) }
             "CLAIM_FOCUS" -> claimMediaFocus()
+            "START_NAV" -> handleAutoStartNav()
         }
         return START_STICKY
+    }
+
+    private fun handleAutoStartNav() {
+        rebuildPlaylistsAndResume()
+        if (playlists.isEmpty()) {
+            speakStatus("Navigation active, but no solutions found yet.", false)
+        } else {
+            val type = currentType ?: playlists.keys.firstOrNull()
+            if (type != null) {
+                val readable = when(type) {
+                    "wo" -> "worked out solutions"
+                    "tf" -> "true or false"
+                    "mc" -> "multiple choice"
+                    "ma" -> "matching"
+                    "fill" -> "fill in the blanks"
+                    else -> "short answers"
+                }
+                speakStatus("Starting playback of $readable", false)
+                playType(type)
+            }
+        }
     }
 
     private fun stopAllPlayback() {
