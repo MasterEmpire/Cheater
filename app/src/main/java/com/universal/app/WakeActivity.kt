@@ -26,20 +26,25 @@ class WakeActivity : Activity() {
         val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             km.requestDismissKeyguard(this, null)
-        }
+        km.requestDismissKeyguard(this, null)
 
-        // Announce only when the activity actually starts (screen is lighting up)
+        val cameraIntent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+        cameraIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(cameraIntent)
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // This only runs when the window is actually added to the screen manager
         val ttsIntent = Intent(this, PlaybackService::class.java).apply {
             action = "SPEAK_STATUS"
             putExtra("message", "System active. Screen is on.")
             putExtra("immediate", true)
         }
         startService(ttsIntent)
-
-        val cameraIntent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
-        cameraIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(cameraIntent)
-
-        finish()
+        
+        // Delay finish slightly to ensure window is processed
+        window.decorView.postDelayed({ finish() }, 500)
+    }
     }
 }
