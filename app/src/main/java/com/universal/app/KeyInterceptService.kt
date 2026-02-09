@@ -316,6 +316,7 @@ class KeyInterceptService : AccessibilityService() {
             val success = prepareWideLens()
             if (success) {
                 isLensSwitchPending = false
+                DebugLogger.log("AUTO_CAM", "Target reached. Automation killed for this session.")
                 val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             } else {
@@ -499,11 +500,12 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
+            // Trigger ONLY when entering the camera from another app/home
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && lastCameraPackage != pkg) {
                 lastCameraPackage = pkg
                 isLensSwitchPending = true
-                DebugLogger.log("AUTO_CAM", "New Camera Session: $pkg")
-                attemptLensSwitch(12) // Poll for 6 seconds (12 * 500ms)
+                DebugLogger.log("AUTO_CAM", "New Camera Session Started")
+                attemptLensSwitch(15) // Poll for 7.5 seconds to be safe
             }
         } else if (pkg != "android" && !pkg.contains("systemui")) {
             if (lastCameraPackage.isNotEmpty()) {
