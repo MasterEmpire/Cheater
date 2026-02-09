@@ -486,7 +486,25 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        DebugLogger.log("SVC", "PlaybackService Destroying: Cleaning up resources")
         if (wakeLock?.isHeld == true) wakeLock?.release()
+        
+        // Release Silent Loop
+        silentPlayer?.stop()
+        silentPlayer?.release()
+        silentPlayer = null
+        
+        // Release MediaPlayer
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+        mediaPlayer = null
+
+        // Release Media Session (Restores Assistant)
+        mediaSession?.isActive = false
+        mediaSession?.release()
+        mediaSession = null
+        
+        isFocusHeld = false
         super.onDestroy()
     }
 
