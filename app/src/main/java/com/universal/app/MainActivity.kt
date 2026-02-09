@@ -60,7 +60,6 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-@Composable
 fun AppDashboard() {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE) }
@@ -266,17 +265,6 @@ fun checkBattery(c: Context) = (c.getSystemService(Context.POWER_SERVICE) as and
 fun isAccessibilityEnabled(c: Context): Boolean {
     val s = Settings.Secure.getString(c.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
     return s.contains(c.packageName)
-}
-
-@Composable
-fun AudioListItem(file: File, onPlay: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).background(Color.Black.copy(alpha = 0.2f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(file.name, style = MaterialTheme.typography.bodyMedium, color = Color.White)
-            Text("${file.length() / 1024} KB", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-        }
-        IconButton(onClick = onPlay) { Icon(Icons.Default.PlayArrow, contentDescription = null, tint = Color.Cyan) }
-    }
 }
 
 @Composable
