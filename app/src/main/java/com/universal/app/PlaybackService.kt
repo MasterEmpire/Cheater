@@ -97,8 +97,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val isActive = prefs.getBoolean("is_active", false)
 
-        if (intent == null && isActive) {
-            rebuildPlaylistsAndResume()
+        if (isActive) {
+            claimMediaFocus()
+            if (intent == null) rebuildPlaylistsAndResume()
         }
 
         val action = intent?.action
@@ -347,24 +348,26 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun claimMediaFocus() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val result = audioManager.requestAudioFocus(
-            { /* Ignore focus change for now */ },
+            { focusChange -> 
+                if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS) {
+                    // If we lose focus, reclaim it immediately to keep Assistant blocked
+                    handler.postDelayed({ claimMediaFocus() }, 1000)
+                }
+            },
             android.media.AudioManager.STREAM_MUSIC,
             android.media.AudioManager.AUDIOFOCUS_GAIN
         )
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            DebugLogger.log("SESSION", "Audio focus granted")
+            DebugLogger.log("SESSION", "Media Session Active & Playing (Blocking Assistant)")
             mediaSession?.isActive = true
-            speakStatus("System ready. Earphone control hijacked.", true)
             
-            // Set a dummy state to convince the OS we are playing
+            // State MUST be STATE_PLAYING to override system Assistant behavior screen-off
             val state = PlaybackStateCompat.Builder()
                 .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
                 .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
                 .build()
             mediaSession?.setPlaybackState(state)
-        } else {
-            DebugLogger.log("SESSION", "Audio focus denied")
         }
     }
 
