@@ -372,18 +372,19 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun startSilentLoop() {
         try {
             silentPlayer?.release()
-            // Create a 1-second silent audio buffer
-            silentPlayer = MediaPlayer().apply {
-                val assetFileDescriptor = resources.openRawResourceFd(android.R.raw.load_complete) // Use any small system sound as a base
-                setDataSource(assetFileDescriptor.fileDescriptor, assetFileDescriptor.startOffset, assetFileDescriptor.length)
-                setVolume(0f, 0f) // Silent
+            silentPlayer = MediaPlayer()
+            silentPlayer?.apply {
+                // Use standard System Notification URI as a silent anchor
+                setDataSource(applicationContext, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
+                setVolume(0f, 0f) // Keep it silent
                 isLooping = true
                 prepare()
                 start()
             }
-            DebugLogger.log("SESSION", "Silent loop started to anchor MediaSession")
+            DebugLogger.log("SESSION", "Silent loop anchored via system URI")
         } catch (e: Exception) {
-            DebugLogger.log("SESSION", "Silent loop failed: ${e.message}")
+            DebugLogger.log("SESSION", "Silent loop fallback: ${e.message}")
+            // If URI fails, we still have the MediaSession state to block Assistant
         }
     }
 
