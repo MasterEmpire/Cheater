@@ -412,26 +412,10 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun wakeDevice(pm: PowerManager) {
-        try {
-            val wakeLock = pm.newWakeLock(
-                PowerManager.FULL_WAKE_LOCK or
-                PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                PowerManager.ON_AFTER_RELEASE,
-                "UniversalApp::WakeUp"
-            )
-            
-            DebugLogger.log("WAKE", "Attempting screen wake. Current Interactive: ${pm.isInteractive}")
-            
-            // Distinct vibration pattern for waking: short-long
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 50, 100, 200), -1))
-            
-            wakeLock.acquire(3000L)
-            DebugLogger.log("WAKE", "WakeLock Acquired successfully")
-        } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERROR", "Failed to wake screen: ${e.message}")
-            speak("System detected key but failed to light up screen", true)
-        }
+        DebugLogger.log("WAKE", "Triggering WakeActivity from Key Service")
+        val intent = Intent(this, WakeActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
     }
 
     private fun logUiHierarchy() {
