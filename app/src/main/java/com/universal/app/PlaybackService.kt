@@ -113,6 +113,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "RESET" -> resetEverything()
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
             "SPEAK_STATUS" -> intent.getStringExtra("message")?.let { speakStatus(it, intent.getBooleanExtra("immediate", false)) }
+            "CLAIM_FOCUS" -> claimMediaFocus()
         }
         return START_STICKY
     }
@@ -343,8 +344,33 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         manager.notify(2, createNotification(title, text))
     }
 
+    private fun claimMediaFocus() {
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val result = audioManager.requestAudioFocus(
+            { /* Ignore focus change for now */ },
+            android.media.AudioManager.STREAM_MUSIC,
+            android.media.AudioManager.AUDIOFOCUS_GAIN
+        )
+
+        if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            DebugLogger.log("SESSION", "Audio focus granted")
+            mediaSession?.isActive = true
+            speakStatus("System ready. Earphone control hijacked.", true)
+            
+            // Set a dummy state to convince the OS we are playing
+            val state = PlaybackStateCompat.Builder()
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
+                .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .build()
+            mediaSession?.setPlaybackState(state)
+        } else {
+            DebugLogger.log("SESSION", "Audio focus denied")
+        }
+    }
+
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "UniversalMediaSession").apply {
+            setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onMediaButtonEvent(mediaButtonEvent: Intent?): Boolean {
                     val event = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -354,21 +380,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                         mediaButtonEvent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
                     }
                     if (event?.action == KeyEvent.ACTION_UP) {
-                        DebugLogger.log("SESSION", "Headset Button Detected via MediaSession")
+                        val keyCode = event.keyCode
+                        DebugLogger.log("SESSION", "Headset Event: $keyCode")
                         handleHeadsetCommand()
+                        return true
                     }
                     return true
                 }
             })
-            
-            val state = PlaybackStateCompat.Builder()
-                .setActions(PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_PAUSE or PlaybackStateCompat.ACTION_SKIP_TO_NEXT)
-                .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1.0f)
-                .build()
-            setPlaybackState(state)
             isActive = true
         }
-        DebugLogger.log("SESSION", "MediaSession active and hijacking focus")
+        DebugLogger.log("SESSION", "MediaSession initialized")
     }
 
     private fun handleHeadsetCommand() {
