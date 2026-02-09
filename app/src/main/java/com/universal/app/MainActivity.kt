@@ -65,7 +65,9 @@ fun AppDashboard() {
     var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
     var showLogs by remember { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE) }
-    var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", false)) }
+    // Default to TRUE on first launch
+    if (!prefs.contains("is_active")) { prefs.edit().putBoolean("is_active", true).apply() }
+    var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", true)) }
     var audioFiles by remember { mutableStateOf(listOf<File>()) }
     val audioFolder = File(context.cacheDir, "audio_answers")
 
@@ -108,11 +110,13 @@ fun AppDashboard() {
                         isSystemActive = it
                         prefs.edit().putBoolean("is_active", it).apply()
                         if (!it) {
-                            // Immediate stop command
-                            val intent = Intent(context, PlaybackService::class.java).apply { action = "RESET" }
-                            context.startService(intent)
+                            // Full System Teardown
+                            context.stopService(Intent(context, ImageMonitorService::class.java))
+                            context.stopService(Intent(context, PlaybackService::class.java))
+                            DebugLogger.log("SYSTEM", "Master Kill: Services Stopped")
+                        } else {
+                            if (hasPermission) startServices(context)
                         }
-                        if (it && hasPermission) startServices(context)
                     }
                 )
             }
