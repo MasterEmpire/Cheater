@@ -58,11 +58,12 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        // Absolute first check - if inactive, pass through immediately
+        if (!prefs.getBoolean("is_active", true)) return false
+
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val isScreenOn = pm.isInteractive
-
-        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("is_active", false)) return false
         if (!prefs.getBoolean("keys_enabled", true)) return false
 
         val keyCode = event.keyCode
