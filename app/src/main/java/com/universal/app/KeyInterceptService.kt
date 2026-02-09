@@ -2,17 +2,31 @@ package com.universal.app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.provider.MediaStore
 import android.view.KeyEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import java.util.LinkedList
 
 class KeyInterceptService : AccessibilityService() {
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var blockerOverlay: android.view.View? = null
+    private val handler = Handler(Looper.getMainLooper())
+    private var blockerOverlay: View? = null
     private var lastHeadsetClick = 0L
     private var headsetCount = 0
-    private var serviceWakeLock: android.os.PowerManager.WakeLock? = null
+    private var serviceWakeLock: PowerManager.WakeLock? = null
     private var lastUpTime = 0L
     private var upCount = 0
     private var lastDownTime = 0L
@@ -26,10 +40,10 @@ class KeyInterceptService : AccessibilityService() {
     private var isWaitingForDownTapHold = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
-        val pm = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val isScreenOn = pm.isInteractive
 
-        val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("is_active", false)) return false
         if (!prefs.getBoolean("keys_enabled", true)) return false
 
@@ -177,13 +191,13 @@ class KeyInterceptService : AccessibilityService() {
         } else {
             DebugLogger.log("CAM_TOGGLE", "Launching Camera")
             speak("Opening camera", true)
-            val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
             
             handler.postDelayed({
                 prepareWideLens()
-                val prefs = getSharedPreferences("monitor_prefs", android.content.Context.MODE_PRIVATE)
+                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             }, 1500)
         }
@@ -191,19 +205,19 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun showTouchBlocker() {
         if (blockerOverlay != null) return
-        val wm = getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
-        blockerOverlay = android.view.View(this).apply {
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        blockerOverlay = View(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
             setOnTouchListener { _, _ -> true } // Consume all touches
         }
 
-        val params = android.view.WindowManager.LayoutParams(
-            android.view.WindowManager.LayoutParams.MATCH_PARENT,
-            android.view.WindowManager.LayoutParams.MATCH_PARENT,
-            android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-            android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-            android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            android.graphics.PixelFormat.TRANSLUCENT
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
         )
         
         try {
@@ -215,7 +229,7 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun removeTouchBlocker() {
         blockerOverlay?.let {
-            val wm = getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
             try { 
                 wm.removeView(it) 
                 speak("Touch input restored")
@@ -254,10 +268,10 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun prepareWideLens() {
         val root = rootInActiveWindow
-        var lensNode: android.view.accessibility.AccessibilityNodeInfo? = null
+        var lensNode: AccessibilityNodeInfo? = null
 
         if (root != null) {
-            val queue = java.util.LinkedList<android.view.accessibility.AccessibilityNodeInfo>()
+            val queue = LinkedList<AccessibilityNodeInfo>()
             queue.add(root)
             while (!queue.isEmpty()) {
                 val node = queue.poll() ?: continue
@@ -269,7 +283,7 @@ class KeyInterceptService : AccessibilityService() {
                 }
 
                 if (matches) {
-                    var current: android.view.accessibility.AccessibilityNodeInfo? = node
+                    var current: AccessibilityNodeInfo? = node
                     while (current != null) {
                         if (current.isClickable) {
                             lensNode = current
@@ -314,11 +328,11 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun smartShutterClick() {
         val root = rootInActiveWindow
-        var foundNode: android.view.accessibility.AccessibilityNodeInfo? = null
+        var foundNode: AccessibilityNodeInfo? = null
 
         if (root != null) {
             val targets = listOf("shutter", "take picture", "capture", "camera_shutter", "bottom_bar_shutter")
-            val queue = java.util.LinkedList<android.view.accessibility.AccessibilityNodeInfo>()
+            val queue = LinkedList<AccessibilityNodeInfo>()
             queue.add(root)
             
             while (!queue.isEmpty()) {
@@ -352,8 +366,8 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun hapticPulse(ms: Long) {
-        val v = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
-        v.vibrate(android.os.VibrationEffect.createOneShot(ms, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     private fun clickShutterCoordinates() {
@@ -380,8 +394,8 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun triggerReset() {
         speak("System reset, all data cleared", true)
-        val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
-        vibrator.vibrate(android.os.VibrationEffect.createOneShot(200, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
         
         val intent = Intent(this, PlaybackService::class.java)
         intent.action = "RESET"
@@ -397,20 +411,20 @@ class KeyInterceptService : AccessibilityService() {
         startService(intent)
     }
 
-    private fun wakeDevice(pm: android.os.PowerManager) {
+    private fun wakeDevice(pm: PowerManager) {
         try {
             val wakeLock = pm.newWakeLock(
-                android.os.PowerManager.FULL_WAKE_LOCK or
-                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                android.os.PowerManager.ON_AFTER_RELEASE,
+                PowerManager.FULL_WAKE_LOCK or
+                PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                PowerManager.ON_AFTER_RELEASE,
                 "UniversalApp::WakeUp"
             )
             
             DebugLogger.log("WAKE", "Attempting screen wake. Current Interactive: ${pm.isInteractive}")
             
             // Distinct vibration pattern for waking: short-long
-            val vibrator = getSystemService(android.content.Context.VIBRATOR_SERVICE) as android.os.Vibrator
-            vibrator.vibrate(android.os.VibrationEffect.createWaveform(longArrayOf(0, 50, 100, 200), -1))
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 50, 100, 200), -1))
             
             wakeLock.acquire(3000L)
             DebugLogger.log("WAKE", "WakeLock Acquired successfully")
@@ -427,7 +441,7 @@ class KeyInterceptService : AccessibilityService() {
         DebugLogger.log("UI_DUMP", "--- Camera UI End ---")
     }
 
-    private fun recursiveLog(node: android.view.accessibility.AccessibilityNodeInfo, depth: Int) {
+    private fun recursiveLog(node: AccessibilityNodeInfo, depth: Int) {
         if (depth > 15) return
         val sb = StringBuilder()
         repeat(depth) { sb.append(".") }
@@ -435,7 +449,7 @@ class KeyInterceptService : AccessibilityService() {
         val text = node.text?.toString() ?: ""
         val desc = node.contentDescription?.toString() ?: ""
         val id = node.viewIdResourceName ?: ""
-        val bounds = android.graphics.Rect()
+        val bounds = Rect()
         node.getBoundsInScreen(bounds)
 
         sb.append("[").append(node.className.toString().split(".").last()).append("] ")
@@ -465,8 +479,8 @@ class KeyInterceptService : AccessibilityService() {
     }
     override fun onServiceConnected() {
         super.onServiceConnected()
-        val pm = getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
-        serviceWakeLock = pm.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ServiceKeepAlive")
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        serviceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ServiceKeepAlive")
         serviceWakeLock?.acquire()
     }
 
