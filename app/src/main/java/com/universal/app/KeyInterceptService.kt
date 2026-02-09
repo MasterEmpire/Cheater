@@ -55,6 +55,13 @@ class KeyInterceptService : AccessibilityService() {
         DebugLogger.log("MODE", status)
         speak(status, true)
         hapticPulse(500)
+        
+        if (isEarphoneNavMode) {
+            val intent = Intent(this@KeyInterceptService, PlaybackService::class.java).apply {
+                action = "START_NAV"
+            }
+            startService(intent)
+        }
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
