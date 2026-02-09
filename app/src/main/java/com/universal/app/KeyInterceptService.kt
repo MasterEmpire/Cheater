@@ -26,6 +26,11 @@ class KeyInterceptService : AccessibilityService() {
     private var blockerOverlay: View? = null
     private var lastHeadsetClick = 0L
     private var headsetCount = 0
+    private var lastHeadsetDownTime = 0L
+    private val headsetGestureRunnable = Runnable { 
+        processHeadsetGesture(headsetCount, false)
+        headsetCount = 0
+    }
     private var serviceWakeLock: PowerManager.WakeLock? = null
     private var lastUpTime = 0L
     private var upCount = 0
@@ -97,40 +102,37 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
 
-        if (action == KeyEvent.ACTION_UP) {
-            if (keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || keyCode == KeyEvent.KEYCODE_HEADSETHOOK || keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) {
-                if (!isScreenOn) {
-                    wakeDevice(pm)
-                    speak("System active. Screen is on.", true)
-                }
-                val now = System.currentTimeMillis()
-                val useHeadsetTrigger = prefs.getBoolean("headset_trigger", false)
+                val isHeadsetKey = keyCode == KeyEvent.KEYCODE_HEADSETHOOK || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
 
-                if (useHeadsetTrigger) {
-                    if (now - lastHeadsetClick < 500) headsetCount++ else headsetCount = 1
-                    lastHeadsetClick = now
-                    DebugLogger.log("HEADSET", "Press detected (Count: $headsetCount)")
-                    
-                    if (headsetCount == 2) {
-                        DebugLogger.log("HEADSET", "Double Click -> Triggering Camera")
-                        toggleCamera()
-                        headsetCount = 0
-                        return true
-                    }
-                    
-                    // Brief delay to see if a second click comes before triggering shutter
-                    handler.postDelayed({ 
-                        if (headsetCount == 1) { 
-                            DebugLogger.log("HEADSET", "Single Click -> Shutter")
-                            smartShutterClick() 
-                            headsetCount = 0
-                        }
-                    }, 500)
-                } else {
-                    smartShutterClick()
+        if (isHeadsetKey) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0) {
+                    lastHeadsetDownTime = event.eventTime
+                    DebugLogger.log("HEADSET", "Down detected - Hijacking system")
                 }
-                return true
+                return true // Consume DOWN to block Google Assistant
             }
+
+            if (action == KeyEvent.ACTION_UP) {
+                val duration = event.eventTime - lastHeadsetDownTime
+                
+                if (duration > 600) {
+                    // Long Press detected
+                    handler.removeCallbacks(headsetGestureRunnable)
+                    headsetCount = 0
+                    processHeadsetGesture(0, true)
+                } else {
+                    // Potential multi-click
+                    headsetCount++
+                    handler.removeCallbacks(headsetGestureRunnable)
+                    handler.postDelayed(headsetGestureRunnable, 450)
+                }
+                return true // Consume UP to block default media actions
+            }
+        }
 
             val wasBothPressed = isVolUpPressed && isVolDownPressed
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = false
@@ -433,6 +435,26 @@ class KeyInterceptService : AccessibilityService() {
         val intent = Intent(this, WakeActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
+    }
+
+    private fun processHeadsetGesture(count: Int, isLong: Boolean) {
+        val gestureName = when {
+            isLong -> "Long press detected"
+            count == 1 -> "Single press detected"
+            count == 2 -> "Double press detected"
+            count == 3 -> "Triple press detected"
+            else -> "$count presses detected"
+        }
+        
+        DebugLogger.log("HEADSET_GESTURE", "Action: $gestureName")
+        
+        // Special handling: if screen is off, any headset gesture should first trigger wake
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!pm.isInteractive) {
+            wakeDevice(pm)
+        }
+
+        speak(gestureName, true)
     }
 
     private fun logUiHierarchy() {
