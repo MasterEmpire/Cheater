@@ -448,17 +448,16 @@ class KeyInterceptService : AccessibilityService() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
 
         if (isEarphoneNavMode) {
-            // Navigation Mode Logic
+            // Simplified Navigation Mode Logic
             when (sequence) {
                 "S" -> intent.action = "PAUSE"
                 "SS" -> intent.action = "NEXT"
-                "SSS" -> intent.action = "NEXT_CATEGORY"
-                "SL" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "tf") }
-                "LS" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "mc") }
-                "SSL" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "sa") }
-                "LSS" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "wo") }
-                "SSSL" -> { intent.action = "PLAY_TYPE"; intent.putExtra("type", "fill") }
-                else -> speak("Unknown navigation sequence")
+                "L" -> intent.action = "NEXT_CATEGORY"
+                else -> {
+                   // Fallback for accidental triple clicks or messy inputs
+                   if (sequence.contains("L")) intent.action = "NEXT_CATEGORY"
+                   else intent.action = "NEXT"
+                }
             }
             if (intent.action != null) startService(intent)
         } else {
