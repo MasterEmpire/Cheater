@@ -38,6 +38,7 @@ class KeyInterceptService : AccessibilityService() {
     private var isVolDownPressed = false
     private var isWaitingForTapHold = false
     private var isWaitingForDownTapHold = false
+    private var lastCameraPackage = ""
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -195,11 +196,7 @@ class KeyInterceptService : AccessibilityService() {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
             
-            handler.postDelayed({
-                prepareWideLens()
-                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-                if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
-            }, 1500)
+            // Logic moved to onAccessibilityEvent for global robustness
         }
     }
 
@@ -453,16 +450,45 @@ class KeyInterceptService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val type = event?.eventType
-        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || type == AccessibilityEvent.TYPE_WINDOWS_CHANGED) {
-            val pkg = event.packageName?.toString() ?: ""
-            if (blockerOverlay != null && !pkg.contains("camera") && !pkg.contains("lens")) {
-                // User left camera (home button, notification shade apps, etc)
-                removeTouchBlocker()
+        val pkg = event?.packageName?.toString() ?: ""
+        val isCam = pkg.contains("camera") || pkg.contains("lens")
+
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            val isActive = prefs.getBoolean("is_active", false)
+
+            if (isCam && isActive) {
+                // Only trigger if we are entering a NEW camera session
+                if (lastCameraPackage != pkg) {
+                    lastCameraPackage = pkg
+                    DebugLogger.log("AUTO_CAM", "Camera detected: $pkg. Preparing lens...")
+                    
+                    handler.postDelayed({
+                        prepareWideLens()
+                        if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+                    }, 1800)
+                }
+            } else if (!isCam && pkg != "android" && !pkg.contains("systemui")) {
+                // User definitively left the camera app
+                if (lastCameraPackage.isNotEmpty()) {
+                    DebugLogger.log("AUTO_CAM", "Exited Camera")
+                    lastCameraPackage = ""
+                    removeTouchBlocker()
+                }
             }
         }
     }
+    private val headsetReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.universal.app.HEADSET_TRIGGER_SHUTTER") {
+                smartShutterClick()
+            }
+        }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        registerReceiver(headsetReceiver, android.content.IntentFilter("com.universal.app.HEADSET_TRIGGER_SHUTTER"), Context.RECEIVER_NOT_EXPORTED)
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         serviceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ServiceKeepAlive")
         serviceWakeLock?.acquire()
