@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import android.webkit.MimeTypeMap
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
