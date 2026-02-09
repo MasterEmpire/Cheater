@@ -330,19 +330,26 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun attemptLensSwitch(retries: Int) {
-        if (!isLensSwitchPending || retries <= 0) return
+        if (!isLensSwitchPending) return
         
+        if (retries <= 0) {
+            DebugLogger.log("AUTO_CAM", "Automation timed out - Lens button not found")
+            isLensSwitchPending = false
+            return
+        }
+
         handler.postDelayed({
             if (!isLensSwitchPending) return@postDelayed
             
+            DebugLogger.log("AUTO_CAM", "Scanning for lens controls... (Retries left: $retries)")
             val success = prepareWideLens()
+            
             if (success) {
                 isLensSwitchPending = false
-                DebugLogger.log("AUTO_CAM", "Target reached. Automation killed for this session.")
+                DebugLogger.log("AUTO_CAM", "Target Success: Lens Switched")
                 val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             } else {
-                // Continue polling if not found
                 attemptLensSwitch(retries - 1)
             }
         }, 500)
@@ -538,13 +545,17 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
-            // Trigger if it's a window state change AND (new package OR previous automation finished)
-            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            // Window state changed OR content changed while we are looking for the lens
+            val isTriggerEvent = type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+                               (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && isLensSwitchPending)
+
+            if (isTriggerEvent) {
                 if (lastCameraPackage != pkg || !isLensSwitchPending) {
                     lastCameraPackage = pkg
                     isLensSwitchPending = true
                     DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
-                    attemptLensSwitch(15)
+                    speak("Optimizing camera settings", true)
+                    attemptLensSwitch(25) // Increased retries for slower secure-camera launches
                 }
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
