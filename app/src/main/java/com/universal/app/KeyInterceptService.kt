@@ -485,6 +485,23 @@ class KeyInterceptService : AccessibilityService() {
         if (sequence.isEmpty()) return
         val intent = Intent(this, PlaybackService::class.java)
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCam = pkg.contains("camera") || pkg.contains("lens")
+
+        // Global Priority: If screen is off, wake up
+        if (!pm.isInteractive && sequence == "S") {
+            wakeDevice(pm)
+            return
+        }
+
+        // Camera Priority: If camera is open, 'S' is ALWAYS shutter
+        if (isCam && sequence == "S") {
+            DebugLogger.log("HEADSET", "Camera detected: Overriding 'S' to Shutter")
+            smartShutterClick()
+            return
+        }
 
         if (isEarphoneNavMode) {
             // Simplified Navigation Mode Logic
@@ -493,24 +510,18 @@ class KeyInterceptService : AccessibilityService() {
                 "SS" -> intent.action = "NEXT"
                 "L" -> intent.action = "NEXT_CATEGORY"
                 else -> {
-                   // Fallback for accidental triple clicks or messy inputs
                    if (sequence.contains("L")) intent.action = "NEXT_CATEGORY"
                    else intent.action = "NEXT"
                 }
             }
             if (intent.action != null) startService(intent)
         } else {
-            // Standby/System Mode Logic (Camera, Wake, etc.)
+            // Standby/System Mode Logic
             when (sequence) {
-                "S" -> {
-                    if (!pm.isInteractive) wakeDevice(pm) else smartShutterClick()
-                }
+                "S" -> smartShutterClick()
                 "SS" -> toggleCamera()
                 "L" -> speak("System ready. Long press detected.", true)
-                else -> {
-                    val desc = "$sequence detected"
-                    speak(desc, true)
-                }
+                else -> speak("$sequence detected", true)
             }
         }
         
