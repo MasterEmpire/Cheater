@@ -28,8 +28,14 @@ class WakeActivity : Activity() {
             km.requestDismissKeyguard(this, null)
         }
 
-        // The screen is now forced on. We can now launch the camera or just exit.
-        // If we want the camera to show up immediately:
+        // Announce only when the activity actually starts (screen is lighting up)
+        val ttsIntent = Intent(this, PlaybackService::class.java).apply {
+            action = "SPEAK_STATUS"
+            putExtra("message", "System active. Screen is on.")
+            putExtra("immediate", true)
+        }
+        startService(ttsIntent)
+
         val cameraIntent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
         cameraIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(cameraIntent)
