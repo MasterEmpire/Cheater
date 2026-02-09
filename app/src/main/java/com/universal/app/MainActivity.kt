@@ -60,177 +60,212 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+@Composable
 fun AppDashboard() {
     val context = LocalContext.current
-    var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
-    var showLogs by remember { mutableStateOf(false) }
     val prefs = remember { context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE) }
-    // Default to TRUE on first launch
-    if (!prefs.contains("is_active")) { prefs.edit().putBoolean("is_active", true).apply() }
+    
+    var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
     var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", true)) }
     var audioFiles by remember { mutableStateOf(listOf<File>()) }
+    var showLogs by remember { mutableStateOf(false) }
+    
     val audioFolder = File(context.cacheDir, "audio_answers")
-
-    fun refreshFiles() {
-        if (audioFolder.exists()) {
-            audioFiles = audioFolder.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() } ?: emptyList()
-        }
-    }
+    fun refreshFiles() { if (audioFolder.exists()) audioFiles = audioFolder.listFiles()?.filter { it.extension == "wav" }?.sortedByDescending { it.lastModified() } ?: emptyList() }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         hasPermission = results.values.all { it }
         if (hasPermission) startServices(context)
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(
-                containerColor = if (!hasPermission) Color(0xFFB71C1C) 
-                                 else if (isSystemActive) Color(0xFF1B5E20) 
-                                 else Color(0xFF37474F)
-            )
-        ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(if (hasPermission) Icons.Default.CheckCircle else Icons.Default.Warning, contentDescription = null, tint = Color.White)
-                Spacer(Modifier.width(12.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("System Status", style = MaterialTheme.typography.titleMedium, color = Color.White)
-                    Text(
-                        text = if (!hasPermission) "Action Required: Permissions" 
-                               else if (isSystemActive) "ACTIVE: Monitoring & Keys" 
-                               else "STANDBY: Logic Suspended",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.8f)
-                    )
-                }
-                Switch(
-                    checked = isSystemActive,
-                    onCheckedChange = { 
-                        isSystemActive = it
-                        prefs.edit().putBoolean("is_active", it).apply()
-                        if (!it) {
-                            // Full System Teardown
-                            context.stopService(Intent(context, ImageMonitorService::class.java))
-                            context.stopService(Intent(context, PlaybackService::class.java))
-                            DebugLogger.log("SYSTEM", "Master Kill: Services Stopped")
-                        } else {
-                            if (hasPermission) startServices(context)
-                        }
-                    }
-                )
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        floatingActionButton = {
+            FloatingActionButton(onClick = { refreshFiles() }, containerColor = MaterialTheme.colorScheme.primaryContainer) {
+                Icon(Icons.Default.Refresh, "Refresh")
             }
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (!hasPermission) {
-            Button(
-                onClick = {
-                    val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) 
-                        arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.POST_NOTIFICATIONS)
-                        else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-                    launcher.launch(perms)
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("GRANT SYSTEM PERMISSIONS") }
-        }
-
-        // Customization Toggles
-        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val keysEnabled = remember { mutableStateOf(prefs.getBoolean("keys_enabled", true)) }
-            val headsetTrigger = remember { mutableStateOf(prefs.getBoolean("headset_trigger", false)) }
-            val touchBlocker = remember { mutableStateOf(prefs.getBoolean("touch_blocker", false)) }
-            val volShutter = remember { mutableStateOf(prefs.getBoolean("vol_shutter", false)) }
-
-            SettingsToggle("Intercept Keys (Enable for Logic)", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
-            SettingsToggle("Earphone Double-Click Trigger", headsetTrigger) { prefs.edit().putBoolean("headset_trigger", it).apply() }
-            SettingsToggle("Block Touch in Camera", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
-            SettingsToggle("Let Vol Keys Take Photo", volShutter) { prefs.edit().putBoolean("vol_shutter", it).apply() }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { requestBatteryOptimization(context) }, modifier = Modifier.weight(1f)) { Text("BATTERY", fontSize = 10.sp) }
-            OutlinedButton(onClick = { 
-                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
-                context.startActivity(intent)
-            }, modifier = Modifier.weight(1f)) { Text("OVERLAY", fontSize = 10.sp) }
-            OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }, modifier = Modifier.weight(1f)) { Text("ACCESSIBILITY", fontSize = 10.sp) }
-        }
-        OutlinedButton(onClick = { showLogs = true }, modifier = Modifier.fillMaxWidth()) { Text("VIEW INTERNAL LOGS", fontSize = 10.sp) }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Button(
-            onClick = { 
-                val intent = Intent(context, PlaybackService::class.java).apply { action = "CLAIM_FOCUS" }
-                context.startService(intent)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6200EE))
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Icon(Icons.Default.PlayArrow, contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text("HIJACK MEDIA BUTTONS")
-        }
+            item { Spacer(Modifier.height(8.dp)) }
+            
+            // --- Section 1: Hero Status ---
+            item {
+                StatusHeroCard(isSystemActive, hasPermission) { isActive ->
+                    isSystemActive = isActive
+                    prefs.edit().putBoolean("is_active", isActive).apply()
+                    if (!isActive) {
+                        context.stopService(Intent(context, ImageMonitorService::class.java))
+                        context.stopService(Intent(context, PlaybackService::class.java))
+                    } else if (hasPermission) startServices(context)
+                }
+            }
 
-        Spacer(modifier = Modifier.height(24.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = Color.Cyan)
-            Spacer(Modifier.width(8.dp))
-            Surface(
-                shape = androidx.compose.foundation.shape.CircleShape,
-                color = Color.Cyan.copy(alpha = 0.2f)
-            ) {
+            // --- Section 2: Health Grid ---
+            item {
+                Text("SYSTEM HEALTH", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PermissionChip("Battery", checkBattery(context), Modifier.weight(1f)) { requestBatteryOptimization(context) }
+                    PermissionChip("Overlay", Settings.canDrawOverlays(context), Modifier.weight(1f)) { 
+                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) 
+                    }
+                    PermissionChip("Access", isAccessibilityEnabled(context), Modifier.weight(1f)) {
+                        context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                }
+            }
+
+            // --- Section 3: Logic Controls ---
+            item {
+                ElevatedCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        val keysEnabled = remember { mutableStateOf(prefs.getBoolean("keys_enabled", true)) }
+                        val headsetTrigger = remember { mutableStateOf(prefs.getBoolean("headset_trigger", false)) }
+                        val touchBlocker = remember { mutableStateOf(prefs.getBoolean("touch_blocker", false)) }
+
+                        SettingsToggle("Intercept Media Keys", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
+                        SettingsToggle("Headset Shutter", headsetTrigger) { prefs.edit().putBoolean("headset_trigger", it).apply() }
+                        SettingsToggle("Camera Touch Blocker", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
+                        
+                        Button(
+                            onClick = { context.startService(Intent(context, PlaybackService::class.java).apply { action = "CLAIM_FOCUS" }) },
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                            shape = MaterialTheme.shapes.medium
+                        ) { 
+                            Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("LOCK MEDIA SESSION") 
+                        }
+                    }
+                }
+            }
+
+            // --- Section 4: Solution Feed ---
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { showLogs = true }) { Text("VIEW TRACE") }
+                }
+            }
+
+            if (audioFiles.isEmpty()) {
+                item { EmptyState() }
+            } else {
+                items(audioFiles) { file ->
+                    SolutionFeedItem(file) { 
+                        context.startService(Intent(context, PlaybackService::class.java).apply {
+                            action = "PLAY_SPECIFIC"
+                            putExtra("file_name", file.name)
+                        })
+                    }
+                }
+            }
+            
+            item { 
+                val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { Uploader.uploadUri(context, it) } }
+                OutlinedButton(
+                    onClick = { pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
+                ) { Text("MANUAL UPLOAD TEST") }
+            }
+        }
+    }
+
+    if (showLogs) LogModal { showLogs = false }
+    LaunchedEffect(Unit) { refreshFiles(); if (hasPermission) startServices(context) }
+}
+
+@Composable
+fun StatusHeroCard(isActive: Boolean, hasPerm: Boolean, onToggle: (Boolean) -> Unit) {
+    val statusColor = if (!hasPerm) MaterialTheme.colorScheme.error 
+                    else if (isActive) Color(0xFF4CAF50) 
+                    else MaterialTheme.colorScheme.surfaceVariant
+    
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = statusColor.copy(alpha = 0.15f))
+    ) {
+        Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Surface(shape = androidx.compose.foundation.shape.CircleShape, color = statusColor) {
+                Icon(
+                    if (hasPerm) (if (isActive) Icons.Default.Check else Icons.Default.Notifications) else Icons.Default.Warning, 
+                    null, Modifier.padding(8.dp), tint = Color.White
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Protection Status", style = MaterialTheme.typography.labelMedium)
                 Text(
-                    text = "${audioFiles.size}",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Cyan
+                    if (!hasPerm) "Permissions Needed" else if (isActive) "System Guard Active" else "System Standby",
+                    style = MaterialTheme.typography.titleLarge
                 )
             }
+            Switch(checked = isActive, onCheckedChange = onToggle)
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        
-        Card(modifier = Modifier.fillMaxWidth().weight(1f), border = androidx.compose.foundation.BorderStroke(1.dp, Color.DarkGray)) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                if (audioFiles.isEmpty()) {
-                    Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Info, contentDescription = null, tint = Color.Gray)
-                        Text("No solutions yet", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                    }
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize().padding(8.dp)) {
-                        items(audioFiles) { file ->
-                            AudioListItem(file) { 
-                                val intent = Intent(context, PlaybackService::class.java).apply {
-                                    action = "PLAY_SPECIFIC"
-                                    putExtra("file_name", file.name)
-                                }
-                                context.startService(intent)
-                            }
-                        }
-                    }
-                }
-                FloatingActionButton(onClick = { refreshFiles() }, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp), containerColor = Color.Cyan) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", tint = Color.Black)
-                }
+    }
+}
+
+@Composable
+fun PermissionChip(label: String, isValid: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = MaterialTheme.shapes.medium,
+        color = if (isValid) Color(0xFF2E7D32).copy(alpha = 0.2f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (isValid) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error)
+    ) {
+        Column(Modifier.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(if (isValid) Icons.Default.CheckCircle else Icons.Default.Info, null, Modifier.size(16.dp), tint = if (isValid) Color(0xFF81C784) else MaterialTheme.colorScheme.error)
+            Text(label, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+fun SolutionFeedItem(file: File, onPlay: () -> Unit) {
+    val typePrefix = file.name.split("_").firstOrNull() ?: "sa"
+    val icon = when(typePrefix) {
+        "mc" -> Icons.Default.List
+        "tf" -> Icons.Default.Done
+        "wo" -> Icons.Default.Build
+        else -> Icons.Default.Info
+    }
+    
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        tonalElevation = 2.dp,
+        onClick = onPlay
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(file.name.replace(".wav", ""), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                Text("${file.length()/1024} KB • Downloaded", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             }
+            Icon(Icons.Default.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { Uploader.uploadUri(context, it) } }
-        Button(onClick = { pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color.DarkGray)) { Text("MANUAL UPLOAD TEST") }
     }
+}
 
-    if (showLogs) {
-        LogModal(onDismiss = { showLogs = false })
+@Composable
+fun EmptyState() {
+    Column(Modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(Icons.Default.Search, null, Modifier.size(48.dp), tint = Color.Gray.copy(alpha = 0.3f))
+        Text("Waiting for first scan...", color = Color.Gray)
     }
+}
 
-    LaunchedEffect(Unit) {
-        refreshFiles()
-        if (hasPermission) startServices(context)
-    }
+fun checkBattery(c: Context) = (c.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isIgnoringBatteryOptimizations(c.packageName)
+fun isAccessibilityEnabled(c: Context): Boolean {
+    val s = Settings.Secure.getString(c.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
+    return s.contains(c.packageName)
 }
 
 @Composable
