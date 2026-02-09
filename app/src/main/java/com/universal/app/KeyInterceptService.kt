@@ -58,20 +58,44 @@ class KeyInterceptService : AccessibilityService() {
         val action = event.action
         val isLongPress = (event.eventTime - event.downTime) > 600
 
-        // Touch Blocker Emergency Kill: Double tap Vol Up inside camera
+        // 1. Emergency Kill (Double Vol Up inside camera)
         if (action == KeyEvent.ACTION_UP && keyCode == KeyEvent.KEYCODE_VOLUME_UP && blockerOverlay != null) {
-             val now = System.currentTimeMillis()
-             if (now - lastUpTime < 400) {
-                 DebugLogger.log("BLOCKER", "Emergency Removal via VolUp Double-Tap")
-                 removeTouchBlocker()
-             }
-        }
-        
-        if (event.repeatCount == 0) {
-            val actStr = if (action == KeyEvent.ACTION_DOWN) "DOWN" else "UP"
-            DebugLogger.log("KEY", "$actStr Code:$keyCode Long:$isLongPress")
+            val now = System.currentTimeMillis()
+            if (now - lastUpTime < 400) {
+                DebugLogger.log("BLOCKER", "Emergency Removal via VolUp Double-Tap")
+                removeTouchBlocker()
+            }
         }
 
+        // 2. Headset Hijack Logic (Highest Priority)
+        val isHeadsetKey = keyCode == KeyEvent.KEYCODE_HEADSETHOOK || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+
+        if (isHeadsetKey) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0) {
+                    lastHeadsetDownTime = event.eventTime
+                }
+                return true // Hijack Assistant
+            }
+            if (action == KeyEvent.ACTION_UP) {
+                val duration = event.eventTime - lastHeadsetDownTime
+                if (duration > 600) {
+                    handler.removeCallbacks(headsetGestureRunnable)
+                    headsetCount = 0
+                    processHeadsetGesture(0, true)
+                } else {
+                    headsetCount++
+                    handler.removeCallbacks(headsetGestureRunnable)
+                    handler.postDelayed(headsetGestureRunnable, 450)
+                }
+                return true
+            }
+        }
+
+        // 3. Volume Key DOWN Logic
         if (action == KeyEvent.ACTION_DOWN) {
             val now = System.currentTimeMillis()
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
@@ -102,38 +126,8 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
 
-                val isHeadsetKey = keyCode == KeyEvent.KEYCODE_HEADSETHOOK || 
-                          keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || 
-                          keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || 
-                          keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
-
-        if (isHeadsetKey) {
-            if (action == KeyEvent.ACTION_DOWN) {
-                if (event.repeatCount == 0) {
-                    lastHeadsetDownTime = event.eventTime
-                    DebugLogger.log("HEADSET", "Down detected - Hijacking system")
-                }
-                return true // Consume DOWN to block Google Assistant
-            }
-
-            if (action == KeyEvent.ACTION_UP) {
-                val duration = event.eventTime - lastHeadsetDownTime
-                
-                if (duration > 600) {
-                    // Long Press detected
-                    handler.removeCallbacks(headsetGestureRunnable)
-                    headsetCount = 0
-                    processHeadsetGesture(0, true)
-                } else {
-                    // Potential multi-click
-                    headsetCount++
-                    handler.removeCallbacks(headsetGestureRunnable)
-                    handler.postDelayed(headsetGestureRunnable, 450)
-                }
-                return true // Consume UP to block default media actions
-            }
-        }
-
+        // 4. Volume Key UP Logic
+        if (action == KeyEvent.ACTION_UP) {
             val wasBothPressed = isVolUpPressed && isVolDownPressed
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = false
             if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = false
@@ -145,6 +139,7 @@ class KeyInterceptService : AccessibilityService() {
                 return true
             }
 
+            // Shutter blocking logic
             val root = rootInActiveWindow
             val isCamOpen = root?.packageName?.toString()?.contains("camera") == true
             if (isCamOpen && prefs.getBoolean("vol_shutter", false)) return false
@@ -152,11 +147,8 @@ class KeyInterceptService : AccessibilityService() {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
                     val duration = event.eventTime - event.downTime
-                    // If it's a Tap-Hold: Second press (isWaiting) AND duration is long
                     if (isWaitingForTapHold && duration > 500) {
-                        DebugLogger.log("GESTURE", "Camera Toggle Triggered")
                         toggleCamera()
-                        // Reset states to prevent audio triggers
                         isWaitingForTapHold = false
                         upCount = 0 
                         return true 
@@ -167,7 +159,6 @@ class KeyInterceptService : AccessibilityService() {
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
                     val duration = event.eventTime - event.downTime
                     if (isWaitingForDownTapHold && duration > 500) {
-                        DebugLogger.log("GESTURE", "System Reset Triggered")
                         triggerReset()
                         isWaitingForDownTapHold = false
                         downCount = 0
