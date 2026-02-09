@@ -109,6 +109,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "GENERATE" -> data?.let { processJson(it) }
             "PLAY_TYPE" -> intent.getStringExtra("type")?.let { playType(it) }
             "NEXT" -> playNext()
+            "NEXT_CATEGORY" -> playNextCategory()
             "PREVIOUS" -> playPrevious()
             "PAUSE" -> pauseAudio()
             "RESET" -> resetEverything()
@@ -248,20 +249,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun playNext() {
         val type = currentType ?: return
         val list = playlists[type] ?: return
-        DebugLogger.log("NAV", "Next: CurrentIdx=$currentIndex ListSize=${list.size}")
         
         if (currentIndex >= list.size - 1) {
             stopAllPlayback()
-            val readableType = when(type) {
-                "wo" -> "worked out solutions"
-                "tf" -> "true or false"
-                "sa" -> "short answers"
-                "mc" -> "multiple choice"
-                "ma" -> "matching"
-                "fill" -> "fill in the blanks"
-                else -> type
-            }
-            speakStatus("End of $readableType", false)
+            speakStatus("End of $type", false)
             return
         }
 
@@ -269,6 +260,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         currentIndex++
         savePlaybackState()
         playCurrent()
+    }
+
+    private fun playNextCategory() {
+        val types = playlists.keys.toList()
+        if (types.isEmpty()) return
+        
+        val nextIndex = (types.indexOf(currentType) + 1) % types.size
+        playType(types[nextIndex])
     }
 
     private fun playPrevious() {
