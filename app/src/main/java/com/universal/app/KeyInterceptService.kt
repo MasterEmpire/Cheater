@@ -46,6 +46,16 @@ class KeyInterceptService : AccessibilityService() {
     private var lastCameraPackage = ""
     private var isLensSwitchPending = false
     private var isEarphoneNavMode = false
+    private var isLongPressTriggered = false
+    
+    private val volUpLongPressRunnable = Runnable {
+        isEarphoneNavMode = !isEarphoneNavMode
+        isLongPressTriggered = true
+        val status = if (isEarphoneNavMode) "Earphone Navigation Activated" else "Earphone Navigation Deactivated"
+        DebugLogger.log("MODE", status)
+        speak(status, true)
+        hapticPulse(500)
+    }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -113,6 +123,10 @@ class KeyInterceptService : AccessibilityService() {
 
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
+                    if (event.repeatCount == 0) {
+                        isLongPressTriggered = false
+                        handler.postDelayed(volUpLongPressRunnable, 5000)
+                    }
                     val now = System.currentTimeMillis()
                     if (now - lastUpTime < CLICK_GAP) upCount++ else upCount = 1
                     lastUpTime = now
@@ -147,19 +161,15 @@ class KeyInterceptService : AccessibilityService() {
 
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
-                    val duration = event.eventTime - event.downTime
-                    if (duration > 5000) {
-                        // Master Toggle for Earphone Navigation Mode
-                        isEarphoneNavMode = !isEarphoneNavMode
-                        val status = if (isEarphoneNavMode) "Earphone Navigation Activated" else "Earphone Navigation Deactivated"
-                        DebugLogger.log("MODE", status)
-                        speak(status, true)
-                        hapticPulse(500) // Longer vibration for master toggle
-                        isWaitingForTapHold = false
+                    handler.removeCallbacks(volUpLongPressRunnable)
+                    if (isLongPressTriggered) {
+                        isLongPressTriggered = false
                         upCount = 0
+                        isWaitingForTapHold = false
                         return true
                     }
                     
+                    val duration = event.eventTime - event.downTime
                     if (isWaitingForTapHold && duration > 500) {
                         toggleCamera()
                         isWaitingForTapHold = false
