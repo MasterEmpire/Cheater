@@ -395,13 +395,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleHeadsetCommand() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("is_active", false)) return
+
         if (!pm.isInteractive) {
             wakeDevice(pm)
-            speakStatus("System active. Screen is on.", true)
         } else {
-            // Forward to KeyInterceptService via intent if screen is already on
-            // or handle shutter logic here directly
-            val intent = Intent("com.universal.app.HEADSET_CLICK")
+            // Use a Broadcast that KeyInterceptService will hear to trigger a shutter click
+            val intent = Intent("com.universal.app.HEADSET_TRIGGER_SHUTTER")
             sendBroadcast(intent)
         }
     }
