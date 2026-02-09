@@ -97,7 +97,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                             speakStatus(summary.toString(), false)
                             triggerReadyVibration()
                         }
+                    }
                 }
+
                 override fun onError(id: String?) {
                     DebugLogger.log("TTS", "Error processing $id")
                     if (id != null && !id.startsWith("STATUS_")) {
