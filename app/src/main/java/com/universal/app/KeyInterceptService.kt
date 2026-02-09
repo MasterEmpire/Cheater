@@ -289,10 +289,10 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens(): Boolean {
-        val root = rootInActiveWindow ?: {
+        val root = rootInActiveWindow ?: run {
             DebugLogger.log("LENS_ERR", "Root window is null - UI not ready")
             return false
-        }()
+        }
         
         var lensNode: AccessibilityNodeInfo? = null
         val searchTerms = listOf(".5", "0.5", "ultra", "wide")
@@ -546,7 +546,7 @@ class KeyInterceptService : AccessibilityService() {
         val bounds = Rect()
         node.getBoundsInScreen(bounds)
 
-        sb.append("[").append(node.className.toString().split(".").last()).append("] ")
+        sb.append("[").append(node.className?.toString()?.split(".")?.last() ?: "Unknown").append("] ")
         if (text.isNotEmpty()) sb.append("T:$text ")
         if (desc.isNotEmpty()) sb.append("D:$desc ")
         if (id.isNotEmpty()) sb.append("ID:$id ")
@@ -606,7 +606,12 @@ class KeyInterceptService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        registerReceiver(headsetReceiver, android.content.IntentFilter("com.universal.app.HEADSET_TRIGGER_SHUTTER"), Context.RECEIVER_NOT_EXPORTED)
+        val filter = android.content.IntentFilter("com.universal.app.HEADSET_TRIGGER_SHUTTER")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(headsetReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(headsetReceiver, filter)
+        }
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         serviceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ServiceKeepAlive")
         serviceWakeLock?.acquire()
