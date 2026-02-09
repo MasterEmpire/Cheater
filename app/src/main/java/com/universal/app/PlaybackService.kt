@@ -19,6 +19,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var mediaSession: MediaSessionCompat? = null
     private var mediaPlayer: MediaPlayer? = null
+    private var silentPlayer: MediaPlayer? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
     private var isProcessingBatch = false
@@ -345,13 +346,31 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         manager.notify(2, createNotification(title, text))
     }
 
+    private fun startSilentLoop() {
+        try {
+            silentPlayer?.release()
+            // Create a 1-second silent audio buffer
+            silentPlayer = MediaPlayer().apply {
+                val assetFileDescriptor = resources.openRawResourceFd(android.R.raw.load_complete) // Use any small system sound as a base
+                setDataSource(assetFileDescriptor.fileDescriptor, assetFileDescriptor.startOffset, assetFileDescriptor.length)
+                setVolume(0f, 0f) // Silent
+                isLooping = true
+                prepare()
+                start()
+            }
+            DebugLogger.log("SESSION", "Silent loop started to anchor MediaSession")
+        } catch (e: Exception) {
+            DebugLogger.log("SESSION", "Silent loop failed: ${e.message}")
+        }
+    }
+
     private fun claimMediaFocus() {
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val result = audioManager.requestAudioFocus(
-            { focusChange -> 
-                if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS) {
-                    // If we lose focus, reclaim it immediately to keep Assistant blocked
-                    handler.postDelayed({ claimMediaFocus() }, 1000)
+            { focusChange ->
+                DebugLogger.log("SESSION", "Focus Change: $focusChange")
+                if (focusChange != android.media.AudioManager.AUDIOFOCUS_GAIN) {
+                    handler.postDelayed({ claimMediaFocus() }, 500)
                 }
             },
             android.media.AudioManager.STREAM_MUSIC,
@@ -359,15 +378,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         )
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            DebugLogger.log("SESSION", "Media Session Active & Playing (Blocking Assistant)")
+            DebugLogger.log("SESSION", "Focus GRANTED. Blocking Assistant.")
             mediaSession?.isActive = true
             
-            // State MUST be STATE_PLAYING to override system Assistant behavior screen-off
             val state = PlaybackStateCompat.Builder()
-                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_FAST_FORWARD | PlaybackStateCompat.ACTION_REWIND)
                 .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
                 .build()
             mediaSession?.setPlaybackState(state)
+            startSilentLoop()
+        } else {
+            DebugLogger.log("SESSION", "Focus DENIED. Retrying...")
+            handler.postDelayed({ claimMediaFocus() }, 1000)
         }
     }
 
@@ -381,13 +403,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     } else {
                         @Suppress("DEPRECATION")
                         mediaButtonEvent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
-                    }
-                    if (event?.action == KeyEvent.ACTION_UP) {
-                        val keyCode = event.keyCode
-                        DebugLogger.log("SESSION", "Headset Event: $keyCode")
+                    } ?: return false
+
+                    val keyCode = event.keyCode
+                    val action = event.action
+                    
+                    DebugLogger.log("HEADSET", "Raw Key: $keyCode Action: $action")
+                    
+                    if (action == KeyEvent.ACTION_UP) {
                         handleHeadsetCommand()
-                        return true
                     }
+                    // Return true for ALL actions (DOWN and UP) to block system Assistant
                     return true
                 }
             })
