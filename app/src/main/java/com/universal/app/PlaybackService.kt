@@ -29,6 +29,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var currentIndex = 0
     private val playlists = mutableMapOf<String, MutableList<File>>()
     
+    private val handler = Handler(Looper.getMainLooper())
     private val autoPlayHandler = Handler(Looper.getMainLooper())
     private var autoPlayRunnable: Runnable? = null
 
