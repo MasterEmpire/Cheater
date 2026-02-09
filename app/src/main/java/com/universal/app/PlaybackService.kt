@@ -284,13 +284,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             return
         }
         
+        stopAllPlayback()
+        // Loop back to start if at the end
         if (currentIndex >= list.size - 1) {
-            speakStatus("End of $type solutions.", true)
-            return
+            currentIndex = 0
+            DebugLogger.log("NAV", "Looping back to start of $type")
+        } else {
+            currentIndex++
         }
 
-        stopAllPlayback()
-        currentIndex++
         savePlaybackState()
         playCurrent()
     }
@@ -307,9 +309,19 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playPrevious() {
-        if (currentType == null) return
+        val type = currentType ?: return
+        val list = playlists[type]
+        if (list.isNullOrEmpty()) return
+
         stopAllPlayback()
-        currentIndex--
+        // Loop to end if at the start
+        if (currentIndex <= 0) {
+            currentIndex = list.size - 1
+            DebugLogger.log("NAV", "Looping to end of $type")
+        } else {
+            currentIndex--
+        }
+
         savePlaybackState()
         playCurrent()
     }
