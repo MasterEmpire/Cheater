@@ -39,6 +39,7 @@ class KeyInterceptService : AccessibilityService() {
     private var isWaitingForTapHold = false
     private var isWaitingForDownTapHold = false
     private var lastCameraPackage = ""
+    private var isLensSwitchPending = false
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -263,48 +264,63 @@ class KeyInterceptService : AccessibilityService() {
         }
     }
 
-    private fun prepareWideLens() {
-        val root = rootInActiveWindow
+    private fun prepareWideLens(): Boolean {
+        val root = rootInActiveWindow ?: return false
         var lensNode: AccessibilityNodeInfo? = null
 
-        if (root != null) {
-            val queue = LinkedList<AccessibilityNodeInfo>()
-            queue.add(root)
-            while (!queue.isEmpty()) {
-                val node = queue.poll() ?: continue
-                val text = node.text?.toString()?.lowercase() ?: ""
-                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-                
-                val matches = listOf(".5", "0.5", "ultra", "wide").any { 
-                    (text.contains(it) || desc.contains(it)) && !text.contains("1x") 
-                }
-
-                if (matches) {
-                    var current: AccessibilityNodeInfo? = node
-                    while (current != null) {
-                        if (current.isClickable) {
-                            lensNode = current
-                            break
-                        }
-                        current = current.parent
-                    }
-                    if (lensNode != null) break
-                }
-                for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
+        val queue = LinkedList<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (!queue.isEmpty()) {
+            val node = queue.poll() ?: continue
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            
+            // Keep existing targeting logic exactly as requested
+            val matches = listOf(".5", "0.5", "ultra", "wide").any { 
+                (text.contains(it) || desc.contains(it)) && !text.contains("1x") 
             }
+
+            if (matches) {
+                var current: AccessibilityNodeInfo? = node
+                while (current != null) {
+                    if (current.isClickable) {
+                        lensNode = current
+                        break
+                    }
+                    current = current.parent
+                }
+                if (lensNode != null) break
+            }
+            for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
 
-        if (lensNode != null) {
+        return if (lensNode != null) {
             DebugLogger.log("LENS", "Auto-Target Success")
             speak("Wide lens activated")
             hapticPulse(50)
             lensNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+            true
         } else {
-            DebugLogger.log("LENS", "Target Not Found. Dumping UI and using Pinch.")
-            speak("Automatic lens switch failed, attempting manual pinch")
-            logUiHierarchy()
-            performPinchFallback()
+            false
         }
+    }
+
+    private fun attemptLensSwitch(retries: Int) {
+        if (!isLensSwitchPending || retries <= 0) return
+        
+        handler.postDelayed({
+            if (!isLensSwitchPending) return@postDelayed
+            
+            val success = prepareWideLens()
+            if (success) {
+                isLensSwitchPending = false
+                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+            } else {
+                // Continue polling if not found
+                attemptLensSwitch(retries - 1)
+            }
+        }, 500)
     }
 
     private fun performPinchFallback() {
@@ -453,28 +469,22 @@ class KeyInterceptService : AccessibilityService() {
         val pkg = event?.packageName?.toString() ?: ""
         val isCam = pkg.contains("camera") || pkg.contains("lens")
 
-        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+        if (isCam) {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-            val isActive = prefs.getBoolean("is_active", false)
+            if (!prefs.getBoolean("is_active", false)) return
 
-            if (isCam && isActive) {
-                // Only trigger if we are entering a NEW camera session
-                if (lastCameraPackage != pkg) {
-                    lastCameraPackage = pkg
-                    DebugLogger.log("AUTO_CAM", "Camera detected: $pkg. Preparing lens...")
-                    
-                    handler.postDelayed({
-                        prepareWideLens()
-                        if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
-                    }, 1800)
-                }
-            } else if (!isCam && pkg != "android" && !pkg.contains("systemui")) {
-                // User definitively left the camera app
-                if (lastCameraPackage.isNotEmpty()) {
-                    DebugLogger.log("AUTO_CAM", "Exited Camera")
-                    lastCameraPackage = ""
-                    removeTouchBlocker()
-                }
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && lastCameraPackage != pkg) {
+                lastCameraPackage = pkg
+                isLensSwitchPending = true
+                DebugLogger.log("AUTO_CAM", "New Camera Session: $pkg")
+                attemptLensSwitch(12) // Poll for 6 seconds (12 * 500ms)
+            }
+        } else if (pkg != "android" && !pkg.contains("systemui")) {
+            if (lastCameraPackage.isNotEmpty()) {
+                DebugLogger.log("AUTO_CAM", "Exited Camera")
+                lastCameraPackage = ""
+                isLensSwitchPending = false
+                removeTouchBlocker()
             }
         }
     }
