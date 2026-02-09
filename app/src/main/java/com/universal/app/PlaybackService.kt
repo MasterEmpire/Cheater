@@ -4,7 +4,7 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.media.MediaPlayer
-import androidx.media.session.MediaSessionCompat
+import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.view.KeyEvent
 import android.os.*
@@ -339,7 +339,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun updateNotification(title: String, text: String) {
-        val manager = getSystemService(NotificationManager::class.java)
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         manager.notify(2, createNotification(title, text))
     }
 
