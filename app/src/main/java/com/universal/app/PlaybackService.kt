@@ -476,17 +476,30 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun wakeDevice(pm: PowerManager) {
         try {
-            DebugLogger.log("WAKE", "Forcing screen on via WakeActivity")
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+            DebugLogger.log("WAKE", "Executing High-Priority Wake Sequence")
             
+            // 1. Force screen CPU and Brightness on via temporary WakeLock
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or 
+                PowerManager.ACQUIRE_CAUSES_WAKEUP or 
+                PowerManager.ON_AFTER_RELEASE, 
+                "UniversalApp::FullPowerWake"
+            )
+            wl.acquire(3000) // Keep screen on for 3 seconds to allow activity to draw
+
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
+            
+            // 2. Launch Activity with aggressive flags
             val intent = Intent(this, WakeActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+            intent.addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or 
+                Intent.FLAG_ACTIVITY_NO_USER_ACTION or 
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
             startActivity(intent)
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Fallback to WakeLock: ${e.message}")
-            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::EmergencyWake")
-            wl.acquire(1000)
+            DebugLogger.log("WAKE_ERR", "Wake Failed: ${e.message}")
         }
     }
 
