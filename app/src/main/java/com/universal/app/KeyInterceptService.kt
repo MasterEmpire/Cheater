@@ -341,8 +341,16 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun smartShutterClick() {
         val root = rootInActiveWindow
-        var foundNode: AccessibilityNodeInfo? = null
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCamera = pkg.contains("camera") || pkg.contains("lens")
 
+        if (!isCamera) {
+            DebugLogger.log("SHUTTER", "Blocked: Camera not in foreground ($pkg)")
+            speak("Camera is not launched yet", true)
+            return
+        }
+
+        var foundNode: AccessibilityNodeInfo? = null
         if (root != null) {
             val targets = listOf("shutter", "take picture", "capture", "camera_shutter", "bottom_bar_shutter")
             val queue = LinkedList<AccessibilityNodeInfo>()
@@ -361,18 +369,14 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
 
-        val rootInfo = rootInActiveWindow
-        val pkg = rootInfo?.packageName?.toString() ?: ""
-        val isCamera = pkg.contains("camera") || pkg.contains("lens")
-
         if (foundNode != null) {
             DebugLogger.log("AUTO", "Smart Shutter Active")
-            speak(if (isCamera) "Capturing image" else "Attempting capture in non-camera app")
+            speak("Capturing image")
             hapticPulse(100)
             foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
             DebugLogger.log("AUTO", "Shutter Node Missing")
-            speak(if (isCamera) "Shutter button not visible, using coordinate fallback" else "Camera not detected, trying coordinate click")
+            speak("Shutter button not visible, using coordinate fallback")
             logUiHierarchy()
             clickShutterCoordinates()
         }
