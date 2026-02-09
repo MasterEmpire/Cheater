@@ -476,30 +476,46 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun wakeDevice(pm: PowerManager) {
         try {
-            DebugLogger.log("WAKE", "Executing High-Priority Wake Sequence")
+            DebugLogger.log("WAKE", "Executing Full-Screen Intent Wake Sequence")
             
-            // 1. Force screen CPU and Brightness on via temporary WakeLock
-            val wl = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or 
-                PowerManager.ACQUIRE_CAUSES_WAKEUP or 
-                PowerManager.ON_AFTER_RELEASE, 
-                "UniversalApp::FullPowerWake"
+            // 1. Prepare the intent for our WakeActivity
+            val intent = Intent(this, WakeActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent, 
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            wl.acquire(3000) // Keep screen on for 3 seconds to allow activity to draw
 
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
-            
-            // 2. Launch Activity with aggressive flags
-            val intent = Intent(this, WakeActivity::class.java)
-            intent.addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or 
-                Intent.FLAG_ACTIVITY_NO_USER_ACTION or 
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            // 2. Build a high-priority 'Nudge' notification
+            val notification = NotificationCompat.Builder(this, "PlaybackChannel")
+                .setSmallIcon(android.R.drawable.ic_lock_power_off)
+                .setContentTitle("Wake Sequence")
+                .setContentText("Initializing system...")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setFullScreenIntent(pendingIntent, true)
+                .setSound(null) // Keep it silent so it doesn't fight the TTS
+                .setAutoCancel(true)
+                .build()
+
+            // 3. Fire the notification nudge
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(99, notification)
+
+            // 4. Fallback WakeLock just in case notification intent is delayed
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, 
+                "UniversalApp::DirectWake"
             )
-            startActivity(intent)
+            wl.acquire(2000)
+
+            // Dismiss the notification almost immediately after launch to keep it clean
+            handler.postDelayed({ notificationManager.cancel(99) }, 1500)
+
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Wake Failed: ${e.message}")
+            DebugLogger.log("WAKE_ERR", "Nudge Failed: ${e.message}")
         }
     }
 
