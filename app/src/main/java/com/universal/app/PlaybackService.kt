@@ -386,20 +386,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun wakeDevice(pm: PowerManager) {
         try {
-            val wakeLock = pm.newWakeLock(
-                PowerManager.FULL_WAKE_LOCK or
-                PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                PowerManager.ON_AFTER_RELEASE,
-                "UniversalApp::WakeUp"
-            )
-            
+            DebugLogger.log("WAKE", "Forcing screen on via WakeActivity")
             val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE))
+            vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
             
-            wakeLock.acquire(3000L)
-            DebugLogger.log("WAKE", "Screen wake-up triggered via MediaSession")
+            val intent = Intent(this, WakeActivity::class.java)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+            startActivity(intent)
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Error: ${e.message}")
+            DebugLogger.log("WAKE_ERR", "Fallback to WakeLock: ${e.message}")
+            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::EmergencyWake")
+            wl.acquire(1000)
         }
     }
 
