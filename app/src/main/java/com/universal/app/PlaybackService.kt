@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import android.media.MediaPlayer
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.view.KeyEvent
@@ -140,7 +141,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "RESET" -> resetEverything()
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
             "SPEAK_STATUS" -> intent.getStringExtra("message")?.let { speakStatus(it, intent.getBooleanExtra("immediate", false)) }
-            "CLAIM_FOCUS" -> claimMediaFocus()
+            "CLAIM_FOCUS" -> {
+                DebugLogger.log("UI_CMD", "Manual Media Lock Triggered")
+                claimMediaFocus()
+            }
             "START_NAV" -> handleAutoStartNav()
         }
         return START_STICKY
@@ -431,9 +435,20 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun createNotification(title: String, text: String): Notification {
+        // Link the notification to the media session token
+        val style = androidx.media.app.NotificationCompat.MediaStyle()
+            .setMediaSession(mediaSession?.sessionToken)
+            .setShowActionsInCompactView(0)
+
         return NotificationCompat.Builder(this, "PlaybackChannel")
-            .setContentTitle(title).setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_media_play).build()
+            .setContentTitle(title)
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setOngoing(true)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setStyle(style)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
     }
 
     private fun updateNotification(title: String, text: String) {
@@ -442,27 +457,32 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startSilentLoop() {
-        // Samsung Fix: We MUST play actual silence to keep the MediaSession from expiring
         try {
             if (silentPlayer == null) {
-                // Using a system sound with 0 volume as an anchor
                 silentPlayer = MediaPlayer.create(this, Settings.System.DEFAULT_NOTIFICATION_URI)
                 silentPlayer?.setVolume(0f, 0f)
                 silentPlayer?.isLooping = true
             }
             if (silentPlayer?.isPlaying == false) {
                 silentPlayer?.start()
-                DebugLogger.log("SESSION", "Silent Anchor Active (Hardware WakeLock Reinforced)")
+                
+                // Tell the OS we are actively playing to secure the Lock Screen spot
+                val state = PlaybackStateCompat.Builder()
+                    .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
+                    .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                    .build()
+                mediaSession?.setPlaybackState(state)
+                
+                DebugLogger.log("SESSION", "Silent Anchor & PlaybackState: ACTIVE")
             }
         } catch (e: Exception) {
-            DebugLogger.log("SESSION", "Silent Anchor Failed: ${e.message}")
+            DebugLogger.log("SESSION", "Silent Anchor ERROR: ${e.message}")
         }
     }
 
     private fun claimMediaFocus() {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("is_active", false)) return
-        if (isFocusHeld && (mediaPlayer?.isPlaying == true || silentPlayer?.isPlaying == true)) return 
 
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val result = audioManager.requestAudioFocus(
@@ -471,14 +491,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     android.media.AudioManager.AUDIOFOCUS_LOSS,
                     android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                         isFocusHeld = false
-                        DebugLogger.log("SESSION", "Focus Lost")
+                        DebugLogger.log("SESSION", "Focus Lost to another app")
                         handler.removeCallbacksAndMessages(null)
-                        handler.postDelayed({ claimMediaFocus() }, 5000)
+                        handler.postDelayed({ claimMediaFocus() }, 3000)
                     }
                     android.media.AudioManager.AUDIOFOCUS_GAIN -> {
                         isFocusHeld = true
-                        DebugLogger.log("SESSION", "Focus Gained")
-                        speakStatus("Universal App media control active", true)
+                        DebugLogger.log("SESSION", "Focus Regained")
                     }
                 }
             },
@@ -488,26 +507,29 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             isFocusHeld = true
-            DebugLogger.log("SESSION", "System Media Hijacked")
+            DebugLogger.log("SESSION", "Focus GRANTED: Displacing other apps")
             mediaSession?.isActive = true
-            
-            val state = PlaybackStateCompat.Builder()
-                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
-                .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
-                .build()
-            mediaSession?.setPlaybackState(state)
-            
             startSilentLoop()
-            speakStatus("Universal App is now controlling media", false)
+            // Update notification to apply MediaStyle changes immediately
+            updateNotification("System Guardian", "Media Hijack Successful")
         } else {
             isFocusHeld = false
-            handler.postDelayed({ claimMediaFocus() }, 5000)
+            DebugLogger.log("SESSION", "Focus DENIED: Retrying...")
+            handler.postDelayed({ claimMediaFocus() }, 3000)
         }
     }
 
     private fun setupMediaSession() {
         mediaSession = MediaSessionCompat(this, "UniversalMediaSession").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
+            
+            // Set Metadata to force OS to display our card
+            val metadata = MediaMetadataCompat.Builder()
+                .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "System Guardian")
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Service Active")
+                .build()
+            setMetadata(metadata)
+
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onMediaButtonEvent(mediaButtonEvent: Intent?): Boolean {
                     val event = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -517,21 +539,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                         mediaButtonEvent?.getParcelableExtra(Intent.EXTRA_KEY_EVENT)
                     } ?: return false
 
-                    val keyCode = event.keyCode
-                    val action = event.action
-                    
-                    DebugLogger.log("HEADSET", "Raw Key: $keyCode Action: $action")
-                    
-                    if (action == KeyEvent.ACTION_UP) {
+                    if (event.action == KeyEvent.ACTION_UP) {
                         handleHeadsetCommand()
                     }
-                    // Return true for ALL actions (DOWN and UP) to block system Assistant
                     return true
                 }
             })
             isActive = true
         }
-        DebugLogger.log("SESSION", "MediaSession initialized")
+        DebugLogger.log("SESSION", "MediaSession Initialized + Metadata Set")
     }
 
     private fun handleHeadsetCommand() {
