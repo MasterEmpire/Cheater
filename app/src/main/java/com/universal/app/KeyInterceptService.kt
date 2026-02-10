@@ -245,26 +245,38 @@ class KeyInterceptService : AccessibilityService() {
             DebugLogger.log("BLOCKER", "Already active, skipping")
             return
         }
+    private fun showTouchBlocker() {
+        if (blockerOverlay != null) return
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         blockerOverlay = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
-            setOnTouchListener { _, _ -> true } // Consume all touches
+            setOnTouchListener { _, _ -> true }
         }
+
+        // Status Bar height usually ~24-48dp. We use a safe offset to allow shade interactions.
+        val statusBarHeight = (25 * resources.displayMetrics.density).toInt()
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR,
             PixelFormat.TRANSLUCENT
-        )
+        ).apply {
+            // Offset the blocker so it starts below the status bar handle
+            gravity = android.view.Gravity.TOP
+            y = statusBarHeight
+            height = resources.displayMetrics.heightPixels - statusBarHeight
+        }
         
         try {
             wm.addView(blockerOverlay, params)
-            DebugLogger.log("BLOCKER", "Touch Blocker Enabled")
+            DebugLogger.log("BLOCKER", "Touch Blocker Enabled (Safe Offset Apply)")
             speak("Touch input blocked")
         } catch (e: Exception) { DebugLogger.log("BLOCKER", "Error: ${e.message}") }
+    }
     }
 
     private fun removeTouchBlocker() {
@@ -614,44 +626,40 @@ class KeyInterceptService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val type = event?.eventType
         val pkg = event?.packageName?.toString() ?: ""
-        
-        // Omniscient Logging: Track every app transition to find hidden camera packages
-        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            DebugLogger.log("WINDOW_TRACE", "Focus moved to: $pkg")
-        }
+        val isCam = pkg.contains("camera") || pkg.contains("lens")
+        val isSystemUI = pkg == "com.android.systemui"
 
-        // Broadened Detection: Some cameras hide under 'capture', 'sec' (Samsung), or 'imaging'
-        val isCam = pkg.contains("camera", ignoreCase = true) || 
-                    pkg.contains("lens", ignoreCase = true) || 
-                    pkg.contains("capture", ignoreCase = true) || 
-                    pkg == "com.sec.android.app.camera"
+        // 1. Dynamic Blocker Toggle (Notification Shade Awareness)
+        if (blockerOverlay != null) {
+            if (isSystemUI) {
+                blockerOverlay?.visibility = View.GONE
+                DebugLogger.log("BLOCKER", "System UI detected: Hiding overlay")
+            } else if (isCam) {
+                blockerOverlay?.visibility = View.VISIBLE
+                DebugLogger.log("BLOCKER", "Returning to Camera: Showing overlay")
+            }
+        }
 
         if (isCam) {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
-            if (lastCameraPackage != pkg) {
-                DebugLogger.log("LENS_FLOW", "Camera Entered: $pkg")
-                lastCameraPackage = pkg
-                isLensSwitchPending = true
-                speak("Camera active. Optimizing lens.", true)
-                attemptLensSwitch(35)
-                return
-            }
-
-            if (isLensSwitchPending && (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) {
-                val success = prepareWideLens()
-                if (success) {
-                    DebugLogger.log("LENS_FLOW", "Optimization Verified via Event Trigger")
-                    isLensSwitchPending = false
-                    if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+               (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && isLensSwitchPending)) {
+                if (lastCameraPackage != pkg || !isLensSwitchPending) {
+                    lastCameraPackage = pkg
+                    isLensSwitchPending = true
+                    DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
+                    speak("Optimizing camera settings", true)
+                    attemptLensSwitch(25)
                 }
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val isOverlay = pkg == "android" || pkg == "com.android.systemui" || pkg == "com.google.android.permissioncontroller"
-            if (!isCam && !isOverlay && pkg.isNotEmpty()) {
-                if (lastCameraPackage.isNotEmpty()) {
-                    DebugLogger.log("LENS_FLOW", "Exit detected. Last Cam: $lastCameraPackage, New App: $pkg")
+            // If it's not camera, and NOT SystemUI/Android Core, kill the blocker entirely
+            val isPersistentSystem = pkg == "android" || pkg == "com.android.systemui"
+            if (!isCam && !isPersistentSystem && pkg.isNotEmpty()) {
+                if (lastCameraPackage.isNotEmpty() || blockerOverlay != null) {
+                    DebugLogger.log("AUTO_CAM", "Exited camera context to $pkg. Destroying blocker.")
                     lastCameraPackage = ""
                     isLensSwitchPending = false
                     removeTouchBlocker()
