@@ -422,26 +422,23 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startSilentLoop() {
+        // We remove the System URI source as it causes focus conflicts with System UI
+        // Instead, we maintain the MediaSession state. If we need a physical audio anchor,
+        // we will only initialize it when the user is actively in a session.
         try {
+            silentPlayer?.stop()
             silentPlayer?.release()
-            silentPlayer = MediaPlayer()
-            silentPlayer?.apply {
-                // Use standard System Notification URI as a silent anchor
-                setDataSource(applicationContext, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
-                setVolume(0f, 0f) // Keep it silent
-                isLooping = true
-                prepare()
-                start()
-            }
-            DebugLogger.log("SESSION", "Silent loop anchored via system URI")
+            silentPlayer = null
+            DebugLogger.log("SESSION", "Silent loop released to prevent system conflict")
         } catch (e: Exception) {
-            DebugLogger.log("SESSION", "Silent loop fallback: ${e.message}")
-            // If URI fails, we still have the MediaSession state to block Assistant
+            DebugLogger.log("SESSION", "Silent cleanup error: ${e.message}")
         }
     }
 
     private fun claimMediaFocus() {
-        if (isFocusHeld) return // Prevent Log/Focus Loop
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("is_active", false)) return
+        if (isFocusHeld && mediaPlayer?.isPlaying == true) return 
 
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val result = audioManager.requestAudioFocus(
@@ -450,8 +447,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     android.media.AudioManager.AUDIOFOCUS_LOSS,
                     android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                         isFocusHeld = false
-                        DebugLogger.log("SESSION", "Focus Lost. Attempting recovery...")
-                        handler.postDelayed({ claimMediaFocus() }, 1000)
+                        DebugLogger.log("SESSION", "Focus Lost. Cooling down...")
+                        // Increase delay to 8 seconds to prevent rapid-fire looping
+                        handler.removeCallbacksAndMessages(null)
+                        handler.postDelayed({ claimMediaFocus() }, 8000)
                     }
                     android.media.AudioManager.AUDIOFOCUS_GAIN -> {
                         isFocusHeld = true
@@ -474,13 +473,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 .build()
             mediaSession?.setPlaybackState(state)
             
-            if (silentPlayer == null || !silentPlayer!!.isPlaying) {
-                startSilentLoop()
-            }
+            startSilentLoop()
         } else {
             isFocusHeld = false
-            DebugLogger.log("SESSION", "Hijack Denied. Retrying...")
-            handler.postDelayed({ claimMediaFocus() }, 2000)
+            DebugLogger.log("SESSION", "Hijack Denied. Retrying in 10s...")
+            handler.postDelayed({ claimMediaFocus() }, 10000)
         }
     }
 
