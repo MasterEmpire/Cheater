@@ -550,57 +550,51 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun claimMediaFocus() {
-        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("is_active", false)) return
-
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        val result = audioManager.requestAudioFocus(
-            { focusChange ->
-                when (focusChange) {
-                    android.media.AudioManager.AUDIOFOCUS_LOSS,
-                    android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
-                        isFocusHeld = false
-                        DebugLogger.log("SESSION", "Focus Lost to another app")
-                        handler.removeCallbacksAndMessages(null)
-                        handler.postDelayed({ claimMediaFocus() }, 3000)
-                    }
-                    android.media.AudioManager.AUDIOFOCUS_GAIN -> {
-                        isFocusHeld = true
-                        DebugLogger.log("SESSION", "Focus Regained")
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        
+        val focusRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build())
+                .setAcceptsDelayedFocusGain(true)
+                .setOnAudioFocusChangeListener { focusChange ->
+                    when (focusChange) {
+                        android.media.AudioManager.AUDIOFOCUS_LOSS -> {
+                            isFocusHeld = false
+                            DebugLogger.log("SESSION", "Hard Focus Loss")
+                            handler.postDelayed({ claimMediaFocus() }, 5000)
+                        }
+                        android.media.AudioManager.AUDIOFOCUS_GAIN -> {
+                            isFocusHeld = true
+                            DebugLogger.log("SESSION", "Focus GAINED")
+                            startSilentLoop()
+                        }
                     }
                 }
-            },
-            android.media.AudioManager.STREAM_MUSIC,
-            android.media.AudioManager.AUDIOFOCUS_GAIN
-        )
+                .build()
+        } else null
+
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusRequest != null) {
+            am.requestAudioFocus(focusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus({ }, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN)
+        }
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             isFocusHeld = true
-            DebugLogger.log("SESSION", "Focus GRANTED. Lock Established.")
+            DebugLogger.log("SESSION", "Focus Lock GRANTED")
             
+            // Force UI/Notification update to link the active session
             mediaSession?.isActive = true
-            
-            // 1. Force audible feedback check
-            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) {
-                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) * 0.6).toInt(), 0)
-                DebugLogger.log("AUDIO_FIX", "Unmuted system for focus confirmation")
-            }
-
-            // 2. Play Audible Chime
-            try {
-                val chime = MediaPlayer.create(this, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
-                chime.setOnCompletionListener { it.release() }
-                chime.start()
-                DebugLogger.log("CHIME", "Audible confirmation played")
-            } catch (e: Exception) { }
-
-            startSilentLoop()
             updateNotification("System Guardian", "Media Lock Active")
-            speakStatus("Media Hijack Successful. System is locked and audible.", true)
+            
+            handler.postDelayed({ startSilentLoop() }, 300)
         } else {
             isFocusHeld = false
-            DebugLogger.log("SESSION", "Focus DENIED: Retrying...")
+            DebugLogger.log("SESSION", "Focus DENIED by System")
             handler.postDelayed({ claimMediaFocus() }, 3000)
         }
     }
@@ -609,17 +603,20 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         mediaSession = MediaSessionCompat(this, "UniversalMediaSession").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             
-            // 1. Set Metadata IMMEDIATELY
+            // 1. Set Metadata with Dummy Duration (Required by Samsung Carousel)
             val metadata = MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "System Guardian")
                 .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Protection Active")
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, 3600000L) // 1 Hour dummy duration
                 .build()
             setMetadata(metadata)
 
-            // 2. Set PlaybackState to PLAYING IMMEDIATELY (Crucial for Media Output Panel)
+            // 2. Set PlaybackState
             val state = PlaybackStateCompat.Builder()
-                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
-                .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or 
+                            PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS or
+                            PlaybackStateCompat.ACTION_STOP)
+                .setState(PlaybackStateCompat.STATE_PLAYING, 0, 1.0f)
                 .build()
             setPlaybackState(state)
 
@@ -637,12 +634,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     }
                     return true
                 }
+                override fun onPlay() { pauseAudio() }
+                override fun onPause() { pauseAudio() }
             })
             
-            // 3. Mark active so the Token is ready for the Notification builder
             isActive = true
         }
-        DebugLogger.log("SESSION", "MediaSession Hot-Reloaded")
+        DebugLogger.log("SESSION", "MediaSession Hardened & Initialized")
     }
 
     private fun handleHeadsetCommand() {
