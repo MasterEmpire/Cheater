@@ -47,11 +47,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         wakeLock?.acquire(3 * 60 * 60 * 1000L)
 
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        
+        // 1. Setup Session First
         setupMediaSession()
+        
+        // 2. Claim focus and start loop immediately to warm up the state
+        claimMediaFocus()
 
         tts = TextToSpeech(this, this)
         if (!audioFolder.exists()) audioFolder.mkdirs()
-        val notification = createNotification("System Active", "Listening for headset commands...")
+
+        // 3. Create notification only AFTER session is active and state is set
+        val notification = createNotification("System Guardian", "Media Lock Active")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(2, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
         } else {
@@ -495,7 +502,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun startSilentLoop() {
         try {
             if (silentPlayer == null) {
-                // Use standard ringtone URI but force Music Stream attributes
                 silentPlayer = MediaPlayer().apply {
                     setAudioAttributes(
                         android.media.AudioAttributes.Builder()
@@ -503,7 +509,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                             .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                             .build()
                     )
-                    setDataSource(applicationContext, android.provider.Settings.System.DEFAULT_RINGTONE_URI)
+                    // Reverting to Notification URI to avoid 'Alert' classification by OS
+                    setDataSource(applicationContext, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
                     setVolume(0f, 0f)
                     isLooping = true
                     prepare()
@@ -512,17 +519,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             if (silentPlayer?.isPlaying == false) {
                 silentPlayer?.start()
                 
-                // Set Playing State: Critical for 'Media Output' visibility
-                val state = PlaybackStateCompat.Builder()
-                    .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
-                    .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
-                    .build()
-                mediaSession?.setPlaybackState(state)
-                
-                DebugLogger.log("SESSION", "Silent Anchor (Music Stream) & State: ACTIVE")
+                // Explicitly sync session state with the actual playing of the silent anchor
+                updateMediaSessionState(true)
+                DebugLogger.log("SESSION", "Silent Anchor Active")
             }
         } catch (e: Exception) {
-            DebugLogger.log("SESSION", "Silent Anchor ERROR: ${e.message}")
+            DebugLogger.log("SESSION", "Silent Anchor Error: ${e.message}")
         }
     }
 
@@ -586,12 +588,19 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         mediaSession = MediaSessionCompat(this, "UniversalMediaSession").apply {
             setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS or MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS)
             
-            // Set Metadata to force OS to display our card
+            // 1. Set Metadata IMMEDIATELY
             val metadata = MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, "System Guardian")
-                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Service Active")
+                .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Protection Active")
                 .build()
             setMetadata(metadata)
+
+            // 2. Set PlaybackState to PLAYING IMMEDIATELY (Crucial for Media Output Panel)
+            val state = PlaybackStateCompat.Builder()
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
+                .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .build()
+            setPlaybackState(state)
 
             setCallback(object : MediaSessionCompat.Callback() {
                 override fun onMediaButtonEvent(mediaButtonEvent: Intent?): Boolean {
@@ -608,9 +617,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     return true
                 }
             })
+            
+            // 3. Mark active so the Token is ready for the Notification builder
             isActive = true
         }
-        DebugLogger.log("SESSION", "MediaSession Initialized + Metadata Set")
+        DebugLogger.log("SESSION", "MediaSession Hot-Reloaded")
     }
 
     private fun handleHeadsetCommand() {
