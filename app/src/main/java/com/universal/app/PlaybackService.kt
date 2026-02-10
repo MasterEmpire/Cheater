@@ -580,20 +580,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
             if (physicallyOn) {
                 wakeRetryCount = 0
-                speakStatus("System active. Screen is on.", true)
+                // Reduced frequency of Service-side speech to allow WakeActivity to take priority
+                DebugLogger.log("WAKE_VERIFY", "Physical wake confirmed. Handing off to WakeActivity speech.")
             } else if (checkCount < 6) {
-                // Continue checking every 500ms for 3 seconds total
                 verifyPhysicalWake(pm, checkCount + 1)
             } else {
-                // Failed to wake after 3 seconds of verification
                 if (wakeRetryCount < 2) {
                     wakeRetryCount++
-                    DebugLogger.log("WAKE_RECOVER", "Physical wake failed. Re-executing sequence (Attempt $wakeRetryCount)")
-                    speakStatus("Screen failed to wake. Retrying immediately.", true)
+                    DebugLogger.log("WAKE_RECOVER", "Retrying wake sequence...")
+                    speakStatus("Retry wake", true)
                     wakeDevice(pm)
                 } else {
-                    DebugLogger.log("WAKE_FATAL", "Screen refused to wake after multiple attempts.")
-                    speakStatus("Critical error: Display hardware is not responding.", true)
+                    speakStatus("Wake failed. Check battery optimization.", true)
                     wakeRetryCount = 0
                 }
             }
