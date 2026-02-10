@@ -77,13 +77,23 @@ class KeyInterceptService : AccessibilityService() {
         val action = event.action
         val isLongPress = (event.eventTime - event.downTime) > 600
 
-        // 1. Emergency Kill (Double Vol Up inside camera)
-        if (action == KeyEvent.ACTION_UP && keyCode == KeyEvent.KEYCODE_VOLUME_UP && blockerOverlay != null) {
-            val now = System.currentTimeMillis()
-            if (now - lastUpTime < 400) {
-                DebugLogger.log("BLOCKER", "Emergency Removal via VolUp Double-Tap")
-                removeTouchBlocker()
+        // 1. Camera Context & Emergency Logic
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCamOpen = pkg.contains("camera") || pkg.contains("lens")
+
+        if (isCamOpen && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && action == KeyEvent.ACTION_UP) {
+                val now = System.currentTimeMillis()
+                if (now - lastUpTime < 400 && blockerOverlay != null) {
+                    DebugLogger.log("BLOCKER", "Emergency Removal via VolUp Double-Tap")
+                    removeTouchBlocker()
+                    return true // Consume to prevent shutter on emergency exit
+                }
+                lastUpTime = now
             }
+            // Pass through to the system so the Camera App can handle the shutter
+            return false 
         }
 
         // 2. Headset Hijack Logic (Highest Priority)
@@ -162,10 +172,7 @@ class KeyInterceptService : AccessibilityService() {
                 return true
             }
 
-            // Shutter blocking logic
-            val root = rootInActiveWindow
-            val isCamOpen = root?.packageName?.toString()?.contains("camera") == true
-            if (isCamOpen && prefs.getBoolean("vol_shutter", false)) return false
+
 
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
