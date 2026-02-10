@@ -99,44 +99,66 @@ class ImageMonitorService : Service() {
     }
 
     private fun processNewImages() {
-        val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATA)
-        val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
-        
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val lastId = prefs.getLong("last_image_id", -1)
+        val isAnchored = prefs.getBoolean("first_image_anchored", false)
+
+        val projection = arrayOf(MediaStore.Images.Media._ID, MediaStore.Images.Media.DATA)
+        val sortOrder = "${MediaStore.Images.Media._ID} ASC"
         
         contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, "${MediaStore.Images.Media._ID} > ?", arrayOf(lastId.toString()), sortOrder)?.use { cursor ->
-            var maxId = lastId
-            val newFiles = mutableListOf<File>()
-            
+            var currentMaxId = lastId
+            val filesToProcess = mutableListOf<File>()
+
             while (cursor.moveToNext()) {
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
                 val path = cursor.getString(cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
                 
-                DebugLogger.log("MONITOR", "Scanning ID: $id (Last processed: $lastId)")
-                if (id > lastId) {
-                    if (id > maxId) maxId = id
+                if (id > currentMaxId) {
+                    currentMaxId = id
                     val file = File(path)
-                    if (file.exists() && file.length() > 1000) { // Ignore tiny thumbnails/temp files
-                        newFiles.add(file)
+                    
+                    if (!isAnchored) {
+                        // THIS IS THE ANCHOR LOGIC: We found a new image, but we use it only to set the baseline
+                        DebugLogger.log("MONITOR", "Discarding first image (ID: $id) to establish anchor point.")
+                        prefs.edit().putBoolean("first_image_anchored", true).apply()
+                        // Update lastId so we never see this or anything before it again
+                        prefs.edit().putLong("last_image_id", currentMaxId).apply()
+                        val intent = Intent(this@ImageMonitorService, PlaybackService::class.java).apply {
+                            action = "SPEAK_STATUS"
+                            putExtra("message", "System synchronized with camera. Ready for next capture.")
+                        }
+                        startService(intent)
+                        return // Stop processing this batch entirely
+                    }
+
+                    if (file.exists()) {
+                        filesToProcess.add(file)
                     }
                 }
             }
-            
-            if (newFiles.isNotEmpty()) {
-                // Save the new maxId immediately to prevent the next observer trigger from seeing these same files
-                prefs.edit().putLong("last_image_id", maxId).apply()
-                
-                // Delay the actual upload slightly to ensure the file is fully written to disk by the system
-                Handler(Looper.getMainLooper()).postDelayed({
-                    val intent = Intent(this@ImageMonitorService, PlaybackService::class.java).apply {
-                        action = "SPEAK_STATUS"
-                        putExtra("message", "New image detected, starting upload")
-                    }
-                    startService(intent)
-                    Uploader.enqueueFiles(this@ImageMonitorService, newFiles)
-                }, 1000)
+
+            if (filesToProcess.isNotEmpty()) {
+                prefs.edit().putLong("last_image_id", currentMaxId).apply()
+                // Start verified upload cycle
+                verifyAndUpload(filesToProcess, 0)
             }
+        }
+    }
+
+    private fun verifyAndUpload(files: List<File>, retryCount: Int) {
+        val readyFiles = files.filter { it.exists() && it.length() > 50000 } // Must be > 50KB to be a real photo
+        
+        if (readyFiles.size == files.size) {
+            DebugLogger.log("MONITOR", "All files verified on disk. Dispatching to Uploader.")
+            Uploader.enqueueFiles(this, readyFiles)
+        } else if (retryCount < 10) {
+            // If files aren't ready (still being written), wait 1.5s and check again
+            DebugLogger.log("MONITOR", "Files not ready yet (size too small). Retry $retryCount/10...")
+            Handler(Looper.getMainLooper()).postDelayed({ verifyAndUpload(files, retryCount + 1) }, 1500)
+        } else {
+            DebugLogger.log("MONITOR", "Timeout waiting for file write. Uploading available data.")
+            if (readyFiles.isNotEmpty()) Uploader.enqueueFiles(this, readyFiles)
         }
     }
 
