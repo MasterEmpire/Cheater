@@ -509,6 +509,10 @@ class KeyInterceptService : AccessibilityService() {
                 "S" -> intent.action = "PAUSE"
                 "SS" -> intent.action = "NEXT"
                 "L" -> intent.action = "NEXT_CATEGORY"
+                "LS" -> {
+                    toggleCamera()
+                    return // Exit so we don't try to start PlaybackService
+                }
                 else -> {
                    if (sequence.contains("L")) intent.action = "NEXT_CATEGORY"
                    else intent.action = "NEXT"
