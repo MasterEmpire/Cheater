@@ -725,7 +725,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             e.printStackTrace()
         }
     }
-    }
 
     private fun verifyPhysicalWake(pm: PowerManager, checkCount: Int) {
         handler.postDelayed({
