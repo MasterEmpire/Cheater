@@ -222,16 +222,21 @@ class KeyInterceptService : AccessibilityService() {
             removeTouchBlocker()
             performGlobalAction(GLOBAL_ACTION_HOME)
         } else {
-            DebugLogger.log("CAM_TOGGLE", "Launching Hardware Camera")
+            DebugLogger.log("CAM_TOGGLE", "Launching Hardware Camera. Starting Instant-Scan.")
             speak("Opening camera", true)
             
-            // Force the service into 'Pending' state immediately so it doesn't miss the window
             isLensSwitchPending = true
-            lastCameraPackage = "" // Reset to force trigger in onAccessibilityEvent
+            lastCameraPackage = "" 
             
             val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
+
+            // Start the search timer IMMEDIATELY, don't wait for accessibility events
+            handler.postDelayed({ 
+                DebugLogger.log("LENS_FLOW", "Instant-Scan Timer Started")
+                attemptLensSwitch(40) 
+            }, 1000)
         }
     }
 
@@ -302,15 +307,13 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens(): Boolean {
-        val root = rootInActiveWindow ?: run {
-            DebugLogger.log("UI_TRACE", "Search Skipped: Root window is null")
-            return false
-        }
+        val root = rootInActiveWindow ?: return false
         
         var lensNode: AccessibilityNodeInfo? = null
         val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "0.5x", "0,5x", "ultra", "wide", "zoom out")
         val bounds = Rect()
         var nodesScanned = 0
+        val foundElements = mutableListOf<String>()
 
         val queue = LinkedList<AccessibilityNodeInfo>()
         queue.add(root)
@@ -319,11 +322,15 @@ class KeyInterceptService : AccessibilityService() {
             val text = node.text?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
             
+            if (node.isClickable || text.isNotEmpty() || desc.isNotEmpty()) {
+                foundElements.add("T:$text|D:$desc")
+            }
+
             val match = searchTerms.find { (text.contains(it) || desc.contains(it)) && !text.contains("1x") }
 
             if (match != null) {
                 node.getBoundsInScreen(bounds)
-                DebugLogger.log("LENS_FIND", "Target Found: '$match' at [${bounds.centerX()}, ${bounds.centerY()}]")
+                DebugLogger.log("LENS_FIND", "Match: '$match' at [${bounds.centerX()}, ${bounds.centerY()}]")
                 
                 var current: AccessibilityNodeInfo? = node
                 var depth = 0
@@ -364,6 +371,11 @@ class KeyInterceptService : AccessibilityService() {
 
             true // Return true because we successfully dispatched the tap attempt
         } else {
+            // Deep Diagnostic: If we found nothing, log the top 5 elements we saw
+            if (nodesScanned > 0 && foundElements.isNotEmpty()) {
+                val sample = foundElements.take(5).joinToString(", ")
+                DebugLogger.log("UI_TRACE", "Scan result: No match in $nodesScanned nodes. Samples: $sample")
+            }
             false
         }
     }
