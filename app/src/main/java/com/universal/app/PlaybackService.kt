@@ -462,7 +462,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun claimMediaFocus() {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("is_active", false)) return
-        if (isFocusHeld && mediaPlayer?.isPlaying == true) return 
+        if (isFocusHeld && (mediaPlayer?.isPlaying == true || silentPlayer?.isPlaying == true)) return 
 
         val audioManager = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val result = audioManager.requestAudioFocus(
@@ -471,14 +471,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     android.media.AudioManager.AUDIOFOCUS_LOSS,
                     android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                         isFocusHeld = false
-                        DebugLogger.log("SESSION", "Focus Lost. Cooling down...")
-                        // Increase delay to 8 seconds to prevent rapid-fire looping
+                        DebugLogger.log("SESSION", "Focus Lost")
                         handler.removeCallbacksAndMessages(null)
-                        handler.postDelayed({ claimMediaFocus() }, 8000)
+                        handler.postDelayed({ claimMediaFocus() }, 5000)
                     }
                     android.media.AudioManager.AUDIOFOCUS_GAIN -> {
                         isFocusHeld = true
                         DebugLogger.log("SESSION", "Focus Gained")
+                        speakStatus("Universal App media control active", true)
                     }
                 }
             },
@@ -488,7 +488,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             isFocusHeld = true
-            DebugLogger.log("SESSION", "Hijack Success: Assistant Blocked")
+            DebugLogger.log("SESSION", "System Media Hijacked")
             mediaSession?.isActive = true
             
             val state = PlaybackStateCompat.Builder()
@@ -498,10 +498,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             mediaSession?.setPlaybackState(state)
             
             startSilentLoop()
+            speakStatus("Universal App is now controlling media", false)
         } else {
             isFocusHeld = false
-            DebugLogger.log("SESSION", "Hijack Denied. Retrying in 10s...")
-            handler.postDelayed({ claimMediaFocus() }, 10000)
+            handler.postDelayed({ claimMediaFocus() }, 5000)
         }
     }
 
@@ -561,58 +561,43 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var wakeRetryCount = 0
     private fun wakeDevice(pm: PowerManager) {
         if (pm.isInteractive) return
+        DebugLogger.log("WAKE", "Executing Hybrid Nudge Wake Sequence")
 
         try {
-            DebugLogger.log("WAKE_AGGRESSIVE", "Action: Triple-Threat Triggered")
-
-            // 1. Hardware Force - Using FULL_WAKE_LOCK for Samsung bypass
-            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "UniversalApp::EmergencyWake")
-            wl.acquire(8000)
-
-            // 2. Intent Construction
+            // v24 Style: Use the standard PlaybackChannel for the Nudge
             val intent = Intent(this, WakeActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-            val pendingIntent = PendingIntent.getActivity(this, 99, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-            // 3. Ultra-High Priority Notification Channel Setup
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val wakeChannel = NotificationChannel("WakeChannel", "System Emergency", NotificationManager.IMPORTANCE_HIGH).apply {
-                    description = "Required for headset wake-up"
-                    setBypassDnd(true)
-                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
-                }
-                nm.createNotificationChannel(wakeChannel)
-            }
-
-            val builder = NotificationCompat.Builder(this, "WakeChannel")
+            val builder = NotificationCompat.Builder(this, "PlaybackChannel")
                 .setSmallIcon(android.R.drawable.ic_lock_power_off)
-                .setContentTitle("Wake Protocol Active")
-                .setContentText("Restoring system visibility...")
+                .setContentTitle("System Wake")
+                .setContentText("Activating display...")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setFullScreenIntent(pendingIntent, true) // THE KEY TO BLACK SCREEN WAKE
+                .setFullScreenIntent(pendingIntent, true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
+
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            // The Burst: Force the system to recognize the intent through repetition
+            // Enhancement Logic: The v26 Triple-Burst pulse applied to the v24 Nudge
             for (i in 1..3) {
                 handler.postDelayed({
-                    DebugLogger.log("WAKE_BURST", "Pulse #$i sent to Notification Manager")
                     nm.notify(99, builder.build())
-                    try {
-                        startActivity(intent)
-                    } catch (e: Exception) { }
+                    try { startActivity(intent) } catch (e: Exception) {}
                 }, i * 300L)
             }
 
-            // 3. Cleanup & Verification
-            handler.postDelayed({ nm.cancel(99) }, 3000)
+            // Enhancement Logic: Keep the v26 FULL_WAKE_LOCK for Samsung support
+            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::NudgeWake")
+            wl.acquire(3000)
+
+            handler.postDelayed({ nm.cancel(99) }, 2000)
             verifyPhysicalWake(pm, 0)
-            
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Sequence Failed: ${e.message}")
+            DebugLogger.log("WAKE_ERR", "Nudge Failed: ${e.message}")
         }
     }
 
