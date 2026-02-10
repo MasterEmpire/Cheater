@@ -28,6 +28,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
     private var isProcessingBatch = false
     private var isReady = false
+    private val ttsMessageMap = mutableMapOf<String, String>()
     private var wakeLock: PowerManager.WakeLock? = null
 
     private var currentType: String? = null
@@ -63,8 +64,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             tts.language = Locale.US
             tts.setSpeechRate(0.9f)
             tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(id: String?) { DebugLogger.log("TTS", "Started: $id") }
+                override fun onStart(id: String?) { 
+                    val msg = ttsMessageMap[id] ?: "System notification"
+                    DebugLogger.log("TTS_TRACE", "Phone is saying: '$msg'") 
+                }
                 override fun onDone(id: String?) {
+                    val msg = ttsMessageMap[id]
+                    if (msg != null) DebugLogger.log("TTS_TRACE", "Finished saying: '$msg'")
+                    ttsMessageMap.remove(id)
+
                     // Only proceed if we are actually expecting a batch of solutions
                     if (isProcessingBatch && id != null && !id.startsWith("STATUS_")) {
                         val type = id.split("_").firstOrNull()
@@ -192,11 +200,32 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun speakStatus(message: String, immediate: Boolean) {
         if (!isReady) return
-        if (immediate) {
-            stopAllPlayback()
-        }
+        if (immediate) stopAllPlayback()
+        
+        val id = "STATUS_${System.currentTimeMillis()}"
+        ttsMessageMap[id] = message
+        
         val queueMode = if (immediate) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-        tts.speak(message, queueMode, null, "STATUS_${System.currentTimeMillis()}")
+        tts.speak(message, queueMode, null, id)
+        logAudioEnvironment()
+    }
+
+    private fun logAudioEnvironment() {
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val vol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+        
+        val route = when {
+            am.isBluetoothA2dpOn -> "Bluetooth Headset"
+            am.isWiredHeadsetOn -> "Wired Headset"
+            am.isSpeakerphoneOn -> "Speakerphone (Forced)"
+            else -> "Internal Speaker"
+        }
+        
+        DebugLogger.log("AUDIO_CHECK", "Output: $route | Vol: $vol/$max")
+        if (vol == 0) {
+            DebugLogger.log("AUDIO_WARN", "System is MUTED. User will not hear feedback.")
+        }
     }
 
     private fun processJson(jsonStr: String) {
@@ -524,13 +553,28 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             isFocusHeld = true
-            DebugLogger.log("SESSION", "Focus GRANTED: Displacing other apps")
+            DebugLogger.log("SESSION", "Focus GRANTED. Lock Established.")
             
-            // Set session active BEFORE firing the notification update
             mediaSession?.isActive = true
             
+            // 1. Force audible feedback check
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) {
+                am.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) * 0.6).toInt(), 0)
+                DebugLogger.log("AUDIO_FIX", "Unmuted system for focus confirmation")
+            }
+
+            // 2. Play Audible Chime
+            try {
+                val chime = MediaPlayer.create(this, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
+                chime.setOnCompletionListener { it.release() }
+                chime.start()
+                DebugLogger.log("CHIME", "Audible confirmation played")
+            } catch (e: Exception) { }
+
             startSilentLoop()
             updateNotification("System Guardian", "Media Lock Active")
+            speakStatus("Media Hijack Successful. System is locked and audible.", true)
         } else {
             isFocusHeld = false
             DebugLogger.log("SESSION", "Focus DENIED: Retrying...")
