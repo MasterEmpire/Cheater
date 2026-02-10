@@ -107,7 +107,15 @@ fun AppDashboard() {
             item {
                 Text("SYSTEM HEALTH", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PermissionChip("Files", hasPermission, Modifier.weight(1f)) {
+                        val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                        } else {
+                            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        }
+                        launcher.launch(perms)
+                    }
                     PermissionChip("Battery", checkBattery(context), Modifier.weight(1f)) { requestBatteryOptimization(context) }
                     PermissionChip("Overlay", Settings.canDrawOverlays(context), Modifier.weight(1f)) { 
                         context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) 
