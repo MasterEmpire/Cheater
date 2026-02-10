@@ -32,9 +32,16 @@ class WakeActivity : Activity() {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        DebugLogger.log("WAKE_TRACE", "WakeActivity window attached to hardware manager")
-        // We no longer speak from here to avoid false positives.
-        // The Service handles physical verification.
+        DebugLogger.log("WAKE_TRACE", "WakeActivity window attached. Physical display active.")
+        
+        // Explicitly notify the service to speak now that hardware is ready
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = "SPEAK_STATUS"
+            putExtra("message", "System active. Display is on.")
+            putExtra("immediate", true)
+        }
+        startService(intent)
+
         window.decorView.postDelayed({ finish() }, 1000)
     }
 }
