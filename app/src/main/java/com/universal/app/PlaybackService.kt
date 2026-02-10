@@ -575,14 +575,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun verifyPhysicalWake(pm: PowerManager, checkCount: Int) {
         handler.postDelayed({
-            val physicallyOn = pm.isInteractive
-            DebugLogger.log("WAKE_VERIFY", "Check #$checkCount: Interactive=$physicallyOn")
+            val logicallyOn = pm.isInteractive
+            DebugLogger.log("WAKE_VERIFY", "Check #$checkCount: Interactive=$logicallyOn")
 
-            if (physicallyOn) {
+            if (logicallyOn) {
                 wakeRetryCount = 0
-                // Reduced frequency of Service-side speech to allow WakeActivity to take priority
-                DebugLogger.log("WAKE_VERIFY", "Physical wake confirmed. Handing off to WakeActivity speech.")
-            } else if (checkCount < 6) {
+                // Service stays silent; we wait for WakeActivity.onWindowFocusChanged
+                DebugLogger.log("WAKE_VERIFY", "Logical wake confirmed. Waiting for Activity Focus signal.")
+            } else if (checkCount < 8) { // Increased checks for slower devices
                 verifyPhysicalWake(pm, checkCount + 1)
             } else {
                 if (wakeRetryCount < 2) {
