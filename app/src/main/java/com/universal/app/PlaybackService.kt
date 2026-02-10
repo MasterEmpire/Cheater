@@ -364,18 +364,34 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun pauseAudio() {
-        if (mediaPlayer == null && (currentType == null || playlists[currentType].isNullOrEmpty())) {
-            speakStatus("Nothing to play or pause.", true)
+        val list = playlists[currentType]
+        if (list.isNullOrEmpty()) {
+            speakStatus("No solutions loaded to play.", true)
             return
         }
         
         if (mediaPlayer?.isPlaying == true) {
             mediaPlayer?.pause()
             speakStatus("Paused", true)
+            updateMediaSessionState(false)
         } else {
-            mediaPlayer?.start()
             speakStatus("Resumed", true)
+            if (mediaPlayer == null) {
+                // Reconstruction: The player was released or never started
+                playCurrent()
+            } else {
+                mediaPlayer?.start()
+                updateMediaSessionState(true)
+            }
         }
+    }
+
+    private fun updateMediaSessionState(isPlaying: Boolean) {
+        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+        mediaSession?.setPlaybackState(PlaybackStateCompat.Builder()
+            .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY | PlaybackStateCompat.ACTION_STOP)
+            .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+            .build())
     }
 
     private fun resetEverything() {
