@@ -13,9 +13,10 @@ class WakeActivity : Activity() {
         super.onCreate(savedInstanceState)
         DebugLogger.log("WAKE_ACTIVITY", "onCreate: Display Asserted")
 
-        // Punch through lockscreen flags (Merged v24/v26 approach)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or 
-                       WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON)
+                       WindowManager.LayoutParams.FLAG_ALLOW_LOCK_WHILE_SCREEN_ON or
+                       WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                       WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
