@@ -655,19 +655,27 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var wakeRetryCount = 0
     private fun wakeDevice(pm: PowerManager) {
         if (pm.isInteractive) return
-        DebugLogger.log("WAKE", "Executing Hybrid Nudge Wake Sequence")
+    private fun wakeDevice(pm: PowerManager) {
+        if (pm.isInteractive) return
+        DebugLogger.log("WAKE", "Executing High-Priority Physical Wake...")
 
         try {
-            // v24 Style: Use the standard PlaybackChannel for the Nudge
+            // 1. Prepare Intent with distinct requestCode
             val intent = Intent(this, WakeActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
-            val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val pendingIntent = PendingIntent.getActivity(
+                this, 
+                System.currentTimeMillis().toInt(), 
+                intent, 
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
 
+            // 2. Build Notification with FullScreenIntent (Mandatory for lockscreen bypass)
             val builder = NotificationCompat.Builder(this, "PlaybackChannel")
                 .setSmallIcon(android.R.drawable.ic_lock_power_off)
-                .setContentTitle("System Wake")
-                .setContentText("Activating display...")
+                .setContentTitle("System Guardian")
+                .setContentText("Waking device...")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setFullScreenIntent(pendingIntent, true)
@@ -676,23 +684,20 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            // Enhancement Logic: The v26 Triple-Burst pulse applied to the v24 Nudge
-            for (i in 1..3) {
-                handler.postDelayed({
-                    nm.notify(99, builder.build())
-                    try { startActivity(intent) } catch (e: Exception) {}
-                }, i * 300L)
-            }
+            // 3. Physical Hardware Wake (Forces backlight power)
+            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::HardwareWake")
+            wl.acquire(5000)
 
-            // Enhancement Logic: Keep the v26 FULL_WAKE_LOCK for Samsung support
-            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::NudgeWake")
-            wl.acquire(3000)
+            // 4. Fire Notification & Activity simultaneously
+            nm.notify(99, builder.build())
+            startActivity(intent)
 
-            handler.postDelayed({ nm.cancel(99) }, 2000)
             verifyPhysicalWake(pm, 0)
+            handler.postDelayed({ nm.cancel(99) }, 3000)
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Nudge Failed: ${e.message}")
+            DebugLogger.log("WAKE_ERR", "Wake Failed: ${e.message}")
         }
+    }
     }
 
     private fun verifyPhysicalWake(pm: PowerManager, checkCount: Int) {
