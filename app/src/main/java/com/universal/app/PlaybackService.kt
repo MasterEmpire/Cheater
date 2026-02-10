@@ -21,6 +21,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var mediaPlayer: MediaPlayer? = null
     private var silentPlayer: MediaPlayer? = null
     private var isFocusHeld = false
+    private var vibrator: Vibrator? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
     private var isProcessingBatch = false
@@ -42,6 +43,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ScreenOffKeys")
         wakeLock?.acquire(3 * 60 * 60 * 1000L)
 
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         setupMediaSession()
 
         tts = TextToSpeech(this, this)
@@ -439,16 +441,20 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun startSilentLoop() {
-        // We remove the System URI source as it causes focus conflicts with System UI
-        // Instead, we maintain the MediaSession state. If we need a physical audio anchor,
-        // we will only initialize it when the user is actively in a session.
+        // Samsung Fix: We MUST play actual silence to keep the MediaSession from expiring
         try {
-            silentPlayer?.stop()
-            silentPlayer?.release()
-            silentPlayer = null
-            DebugLogger.log("SESSION", "Silent loop released to prevent system conflict")
+            if (silentPlayer == null) {
+                // Using a system sound with 0 volume as an anchor
+                silentPlayer = MediaPlayer.create(this, Settings.System.DEFAULT_NOTIFICATION_URI)
+                silentPlayer?.setVolume(0f, 0f)
+                silentPlayer?.isLooping = true
+            }
+            if (silentPlayer?.isPlaying == false) {
+                silentPlayer?.start()
+                DebugLogger.log("SESSION", "Silent Anchor Active (Hardware WakeLock Reinforced)")
+            }
         } catch (e: Exception) {
-            DebugLogger.log("SESSION", "Silent cleanup error: ${e.message}")
+            DebugLogger.log("SESSION", "Silent Anchor Failed: ${e.message}")
         }
     }
 
@@ -529,12 +535,23 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun handleHeadsetCommand() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("is_active", false)) return
+        val isScreenOff = !pm.isInteractive
+        
+        // 1. Immediate Diagnostic Signal
+        vibrator?.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+        DebugLogger.log("HEADSET_EVENT", "Click Received. ScreenOff=$isScreenOff")
 
-        if (!pm.isInteractive) {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("is_active", false)) {
+            DebugLogger.log("HEADSET_EVENT", "Ignored: System Inactive")
+            return
+        }
+
+        if (isScreenOff) {
+            DebugLogger.log("WAKE_TRIGGER", "Initiating emergency wake sequence...")
             wakeDevice(pm)
         } else {
+            DebugLogger.log("WAKE_TRIGGER", "Screen already on. Sending shutter signal.")
             val intent = Intent("com.universal.app.HEADSET_TRIGGER_SHUTTER")
             sendBroadcast(intent)
         }
@@ -545,36 +562,48 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (pm.isInteractive) return
 
         try {
-            DebugLogger.log("WAKE_AGGRESSIVE", "Initiating Triple-Threat Wake Sequence")
+            DebugLogger.log("WAKE_AGGRESSIVE", "Action: Triple-Threat Triggered")
 
-            // 1. Hardware Force
-            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "UniversalApp::EmergencyWake")
-            wl.acquire(5000)
+            // 1. Hardware Force - Using FULL_WAKE_LOCK for Samsung bypass
+            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "UniversalApp::EmergencyWake")
+            wl.acquire(8000)
 
-            // 2. Notification Burst (Fires 3 times to bypass system throttling)
+            // 2. Intent Construction
             val intent = Intent(this, WakeActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             }
             val pendingIntent = PendingIntent.getActivity(this, 99, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-            val builder = NotificationCompat.Builder(this, "PlaybackChannel")
+            // 3. Ultra-High Priority Notification Channel Setup
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val wakeChannel = NotificationChannel("WakeChannel", "System Emergency", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Required for headset wake-up"
+                    setBypassDnd(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                }
+                nm.createNotificationChannel(wakeChannel)
+            }
+
+            val builder = NotificationCompat.Builder(this, "WakeChannel")
                 .setSmallIcon(android.R.drawable.ic_lock_power_off)
-                .setContentTitle("System Nudge")
+                .setContentTitle("Wake Protocol Active")
+                .setContentText("Restoring system visibility...")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setFullScreenIntent(pendingIntent, true)
+                .setFullScreenIntent(pendingIntent, true) // THE KEY TO BLACK SCREEN WAKE
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setOngoing(true)
-
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                .setAutoCancel(true)
             
-            // The Burst: Force the system to recognize the intent
+            // The Burst: Force the system to recognize the intent through repetition
             for (i in 1..3) {
                 handler.postDelayed({
-                    nm.notify(99, builder.setContentText("Pulse Sequence $i/3").build())
-                    // Also try direct activity launch as backup in each pulse
-                    startActivity(intent)
-                }, i * 200L)
+                    DebugLogger.log("WAKE_BURST", "Pulse #$i sent to Notification Manager")
+                    nm.notify(99, builder.build())
+                    try {
+                        startActivity(intent)
+                    } catch (e: Exception) { }
+                }, i * 300L)
             }
 
             // 3. Cleanup & Verification
