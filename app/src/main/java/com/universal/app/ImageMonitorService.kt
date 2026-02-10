@@ -23,6 +23,7 @@ class ImageMonitorService : Service() {
     private lateinit var observer: ContentObserver
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        DebugLogger.init(applicationContext)
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("System Guardian Active")
