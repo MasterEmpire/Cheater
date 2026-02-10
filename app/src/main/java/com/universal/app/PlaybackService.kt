@@ -692,6 +692,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setFullScreenIntent(pendingIntent, true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setVibrate(longArrayOf(0L)) // Mute system vibration (0ms)
                 .setAutoCancel(true)
             DebugLogger.log("WAKE_TRACE", "Step 4: Notification Builder configured with FullScreenIntent")
 
