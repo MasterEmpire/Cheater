@@ -30,18 +30,28 @@ class WakeActivity : Activity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) {
+            DebugLogger.log("WAKE_TRACE", "WakeActivity gained focus. Display physically visible.")
+            
+            // 400ms Grace period for hardware backlight/OLED to stabilize
+            window.decorView.postDelayed({
+                val intent = Intent(this, PlaybackService::class.java).apply {
+                    action = "SPEAK_STATUS"
+                    putExtra("message", "System active. Display is on.")
+                    putExtra("immediate", true)
+                }
+                startService(intent)
+                
+                // Short delay before closing to ensure the 'Turn Screen On' flag is processed
+                window.decorView.postDelayed({ finish() }, 500)
+            }, 400)
+        }
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        DebugLogger.log("WAKE_TRACE", "WakeActivity window attached. Physical display active.")
-        
-        // Explicitly notify the service to speak now that hardware is ready
-        val intent = Intent(this, PlaybackService::class.java).apply {
-            action = "SPEAK_STATUS"
-            putExtra("message", "System active. Display is on.")
-            putExtra("immediate", true)
-        }
-        startService(intent)
-
-        window.decorView.postDelayed({ finish() }, 1000)
+        DebugLogger.log("WAKE_TRACE", "WakeActivity window attached. Awaiting focus...")
     }
 }
