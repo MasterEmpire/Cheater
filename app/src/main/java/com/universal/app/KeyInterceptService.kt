@@ -241,11 +241,6 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun showTouchBlocker() {
-        if (blockerOverlay != null) {
-            DebugLogger.log("BLOCKER", "Already active, skipping")
-            return
-        }
-    private fun showTouchBlocker() {
         if (blockerOverlay != null) return
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         blockerOverlay = View(this).apply {
@@ -265,7 +260,6 @@ class KeyInterceptService : AccessibilityService() {
             WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR,
             PixelFormat.TRANSLUCENT
         ).apply {
-            // Offset the blocker so it starts below the status bar handle
             gravity = android.view.Gravity.TOP
             y = statusBarHeight
             height = resources.displayMetrics.heightPixels - statusBarHeight
@@ -276,7 +270,6 @@ class KeyInterceptService : AccessibilityService() {
             DebugLogger.log("BLOCKER", "Touch Blocker Enabled (Safe Offset Apply)")
             speak("Touch input blocked")
         } catch (e: Exception) { DebugLogger.log("BLOCKER", "Error: ${e.message}") }
-    }
     }
 
     private fun removeTouchBlocker() {
