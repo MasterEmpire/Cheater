@@ -549,54 +549,39 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
+    private var isClaiming = false
     private fun claimMediaFocus() {
+        if (isFocusHeld || isClaiming) return
+        isClaiming = true
+
         val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         
-        val focusRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val focusRequest = android.media.AudioFocusRequest.Builder(android.media.AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build())
-                .setAcceptsDelayedFocusGain(true)
                 .setOnAudioFocusChangeListener { focusChange ->
-                    when (focusChange) {
-                        android.media.AudioManager.AUDIOFOCUS_LOSS -> {
-                            isFocusHeld = false
-                            DebugLogger.log("SESSION", "Hard Focus Loss")
-                            handler.postDelayed({ claimMediaFocus() }, 5000)
-                        }
-                        android.media.AudioManager.AUDIOFOCUS_GAIN -> {
-                            isFocusHeld = true
-                            DebugLogger.log("SESSION", "Focus GAINED")
-                            startSilentLoop()
-                        }
+                    if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS || 
+                        focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
+                        isFocusHeld = false
+                        DebugLogger.log("SESSION", "Focus Surrendered")
+                        // Only retry once after 10 seconds to stop the spam loop
+                        handler.postDelayed({ isClaiming = false; claimMediaFocus() }, 10000)
                     }
                 }
                 .build()
-        } else null
-
-        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusRequest != null) {
-            am.requestAudioFocus(focusRequest)
-        } else {
-            @Suppress("DEPRECATION")
-            am.requestAudioFocus({ }, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN)
-        }
-
-        if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            isFocusHeld = true
-            DebugLogger.log("SESSION", "Focus Lock GRANTED")
             
-            // Force UI/Notification update to link the active session
-            mediaSession?.isActive = true
-            updateNotification("System Guardian", "Media Lock Active")
-            
-            handler.postDelayed({ startSilentLoop() }, 300)
-        } else {
-            isFocusHeld = false
-            DebugLogger.log("SESSION", "Focus DENIED by System")
-            handler.postDelayed({ claimMediaFocus() }, 3000)
+            val result = am.requestAudioFocus(focusRequest)
+            if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                isFocusHeld = true
+                DebugLogger.log("SESSION", "Focus Secured")
+                mediaSession?.isActive = true
+                startSilentLoop()
+            }
         }
+        isClaiming = false
     }
 
     private fun setupMediaSession() {
@@ -647,15 +632,15 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val isScreenOff = !pm.isInteractive
         
-        // 1. Immediate Diagnostic Signal
         vibrator?.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
-        DebugLogger.log("HEADSET_EVENT", "Click Received. ScreenOff=$isScreenOff")
 
+        // FORCE RELOAD preferences to fix the "Ignored: System Inactive" bug
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("is_active", false)) {
-            DebugLogger.log("HEADSET_EVENT", "Ignored: System Inactive")
-            return
-        }
+        val actuallyActive = prefs.getBoolean("is_active", false)
+        
+        DebugLogger.log("HEADSET_EVENT", "Click Received. Active=$actuallyActive, ScreenOff=$isScreenOff")
+
+        if (!actuallyActive) return
 
         if (isScreenOff) {
             DebugLogger.log("WAKE_TRIGGER", "Initiating emergency wake sequence...")
