@@ -523,64 +523,65 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
+    private var wakeRetryCount = 0
     private fun wakeDevice(pm: PowerManager) {
+        val isInteractive = pm.isInteractive
+        DebugLogger.log("WAKE_TRACE", "Initiating sequence. Current Physical State: $isInteractive")
+        
+        if (isInteractive) {
+            speakStatus("Screen is already on", true)
+            return
+        }
+
         try {
-            // --- Diagnostic Pre-Flight ---
-            val isOverlayAllowed = android.provider.Settings.canDrawOverlays(this)
-            val isPowerSave = pm.isPowerSaveMode
-            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            val isLocked = km.isKeyguardLocked
+            DebugLogger.log("WAKE_TRACE", "Firing WakeActivity and Hardware WakeLock")
             
-            val nManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val canUseFullScreen = if (Build.VERSION.SDK_INT >= 34) nManager.canUseFullScreenIntent() else true
+            // 1. Hardware Force
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, 
+                "UniversalApp::HardWake"
+            )
+            wl.acquire(3000)
 
-            DebugLogger.log("WAKE_DIAG", "State: Locked=$isLocked, PowerSave=$isPowerSave, Overlay=$isOverlayAllowed, FS_Intent=$canUseFullScreen")
-
-            if (!isOverlayAllowed) {
-                DebugLogger.log("WAKE_WARN", "Overlay permission MISSING. Activity launch will likely fail.")
-            }
-            
-            DebugLogger.log("WAKE", "Executing Full-Screen Intent Wake Sequence")
-            
-            // 1. Prepare the intent for our WakeActivity
+            // 2. Software Overlay Bridge
             val intent = Intent(this, WakeActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
-            val pendingIntent = PendingIntent.getActivity(
-                this, 0, intent, 
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+            startActivity(intent)
 
-            // 2. Build a high-priority 'Nudge' notification
-            val notification = NotificationCompat.Builder(this, "PlaybackChannel")
-                .setSmallIcon(android.R.drawable.ic_lock_power_off)
-                .setContentTitle("Wake Sequence")
-                .setContentText("Initializing system...")
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setFullScreenIntent(pendingIntent, true)
-                .setSound(null) // Keep it silent so it doesn't fight the TTS
-                .setAutoCancel(true)
-                .build()
-
-            // 3. Fire the notification nudge
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(99, notification)
-
-            // 4. Fallback WakeLock just in case notification intent is delayed
-            val wl = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, 
-                "UniversalApp::DirectWake"
-            )
-            wl.acquire(2000)
-
-            // Dismiss the notification almost immediately after launch to keep it clean
-            handler.postDelayed({ notificationManager.cancel(99) }, 1500)
+            // 3. Start Verification Loop
+            verifyPhysicalWake(pm, 0)
 
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Nudge Failed: ${e.message}")
+            DebugLogger.log("WAKE_ERR", "Sequence Crash: ${e.message}")
         }
+    }
+
+    private fun verifyPhysicalWake(pm: PowerManager, checkCount: Int) {
+        handler.postDelayed({
+            val physicallyOn = pm.isInteractive
+            DebugLogger.log("WAKE_VERIFY", "Check #$checkCount: Interactive=$physicallyOn")
+
+            if (physicallyOn) {
+                wakeRetryCount = 0
+                speakStatus("System active. Screen is on.", true)
+            } else if (checkCount < 6) {
+                // Continue checking every 500ms for 3 seconds total
+                verifyPhysicalWake(pm, checkCount + 1)
+            } else {
+                // Failed to wake after 3 seconds of verification
+                if (wakeRetryCount < 2) {
+                    wakeRetryCount++
+                    DebugLogger.log("WAKE_RECOVER", "Physical wake failed. Re-executing sequence (Attempt $wakeRetryCount)")
+                    speakStatus("Screen failed to wake. Retrying immediately.", true)
+                    wakeDevice(pm)
+                } else {
+                    DebugLogger.log("WAKE_FATAL", "Screen refused to wake after multiple attempts.")
+                    speakStatus("Critical error: Display hardware is not responding.", true)
+                    wakeRetryCount = 0
+                }
+            }
+        }, 500)
     }
 
     private fun playSpecificFile(fileName: String) {
