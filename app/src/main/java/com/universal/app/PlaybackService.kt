@@ -157,7 +157,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
             "SPEAK_STATUS" -> intent.getStringExtra("message")?.let { speakStatus(it, intent.getBooleanExtra("immediate", false)) }
             "CLAIM_FOCUS" -> {
-                DebugLogger.log("UI_CMD", "Manual Media Lock Triggered")
+                DebugLogger.log("AUTHORITY", "Manual Media Lock Triggered. Initiating Deep Audit.")
+                performDeepAudit()
                 claimMediaFocus()
             }
             "START_NAV" -> handleAutoStartNav()
@@ -217,22 +218,42 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         logAudioEnvironment()
     }
 
-    private fun logAudioEnvironment() {
+    private fun performDeepAudit() {
         val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+        
         val vol = am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
         val max = am.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        
         val route = when {
-            am.isBluetoothA2dpOn -> "Bluetooth Headset"
-            am.isWiredHeadsetOn -> "Wired Headset"
-            am.isSpeakerphoneOn -> "Speakerphone (Forced)"
-            else -> "Internal Speaker"
+            am.isBluetoothA2dpOn -> "BLUETOOTH"
+            am.isWiredHeadsetOn -> "WIRED_JACK"
+            else -> "LOUDSPEAKER"
         }
+
+        DebugLogger.log("THRONE_AUDIT", "--- STARTING DEEP AUDIT ---")
+        DebugLogger.log("THRONE_AUDIT", "MediaSession Active: ${mediaSession?.isActive}")
+        DebugLogger.log("THRONE_AUDIT", "Internal Focus Flag: $isFocusHeld")
+        DebugLogger.log("THRONE_AUDIT", "System Music Active: ${am.isMusicActive}")
+        DebugLogger.log("THRONE_AUDIT", "Audio Route: $route")
+        DebugLogger.log("THRONE_AUDIT", "Volume Level: $vol/$max")
+        DebugLogger.log("THRONE_AUDIT", "Device Interactive: ${pm.isInteractive}")
+        DebugLogger.log("THRONE_AUDIT", "Keyguard Guarding: ${km.isKeyguardLocked}")
         
-        DebugLogger.log("AUDIO_CHECK", "Output: $route | Vol: $vol/$max")
-        if (vol == 0) {
-            DebugLogger.log("AUDIO_WARN", "System is MUTED. User will not hear feedback.")
+        val state = mediaSession?.controller?.playbackState
+        DebugLogger.log("THRONE_AUDIT", "Session State: ${state?.state} (Actions: ${state?.actions})")
+        
+        if (isFocusHeld && mediaSession?.isActive == true && vol > 0) {
+            DebugLogger.log("THRONE_AUDIT", "STATUS: APP IS ON THE THRONE. Dominance confirmed.")
+        } else {
+            DebugLogger.log("THRONE_AUDIT", "STATUS: THRONE VACANT. Re-asserting authority now.")
         }
+        DebugLogger.log("THRONE_AUDIT", "--- AUDIT COMPLETE ---")
+    }
+
+    private fun logAudioEnvironment() {
+        // Redirect to audit for comprehensive data
+        performDeepAudit()
     }
 
     private fun processJson(jsonStr: String) {
