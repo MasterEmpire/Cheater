@@ -39,6 +39,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState) 
+        DebugLogger.init(applicationContext)
         createNotificationChannels()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
