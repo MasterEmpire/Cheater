@@ -676,6 +676,7 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     override fun onServiceConnected() {
+        DebugLogger.init(applicationContext)
         super.onServiceConnected()
         val filter = android.content.IntentFilter("com.universal.app.HEADSET_TRIGGER_SHUTTER")
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
