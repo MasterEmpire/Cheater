@@ -435,19 +435,26 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun createNotification(title: String, text: String): Notification {
-        // Link the notification to the media session token
+        // Handlers for notification buttons
+        val prevIntent = PendingIntent.getService(this, 10, Intent(this, PlaybackService::class.java).apply { action = "PREVIOUS" }, PendingIntent.FLAG_IMMUTABLE)
+        val pauseIntent = PendingIntent.getService(this, 11, Intent(this, PlaybackService::class.java).apply { action = "PAUSE" }, PendingIntent.FLAG_IMMUTABLE)
+        val nextIntent = PendingIntent.getService(this, 12, Intent(this, PlaybackService::class.java).apply { action = "NEXT" }, PendingIntent.FLAG_IMMUTABLE)
+
         val style = androidx.media.app.NotificationCompat.MediaStyle()
             .setMediaSession(mediaSession?.sessionToken)
-            .setShowActionsInCompactView(0)
+            .setShowActionsInCompactView(0, 1, 2)
 
         return NotificationCompat.Builder(this, "PlaybackChannel")
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setStyle(style)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .addAction(android.R.drawable.ic_media_previous, "Previous", prevIntent)
+            .addAction(android.R.drawable.ic_media_pause, "Pause", pauseIntent)
+            .addAction(android.R.drawable.ic_media_next, "Next", nextIntent)
+            .setStyle(style)
             .build()
     }
 
@@ -459,21 +466,31 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun startSilentLoop() {
         try {
             if (silentPlayer == null) {
-                silentPlayer = MediaPlayer.create(this, Settings.System.DEFAULT_NOTIFICATION_URI)
-                silentPlayer?.setVolume(0f, 0f)
-                silentPlayer?.isLooping = true
+                // Use standard ringtone URI but force Music Stream attributes
+                silentPlayer = MediaPlayer().apply {
+                    setAudioAttributes(
+                        android.media.AudioAttributes.Builder()
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                            .build()
+                    )
+                    setDataSource(applicationContext, android.provider.Settings.System.DEFAULT_RINGTONE_URI)
+                    setVolume(0f, 0f)
+                    isLooping = true
+                    prepare()
+                }
             }
             if (silentPlayer?.isPlaying == false) {
                 silentPlayer?.start()
                 
-                // Tell the OS we are actively playing to secure the Lock Screen spot
+                // Set Playing State: Critical for 'Media Output' visibility
                 val state = PlaybackStateCompat.Builder()
-                    .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
+                    .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_SKIP_TO_NEXT or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS)
                     .setState(PlaybackStateCompat.STATE_PLAYING, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
                     .build()
                 mediaSession?.setPlaybackState(state)
                 
-                DebugLogger.log("SESSION", "Silent Anchor & PlaybackState: ACTIVE")
+                DebugLogger.log("SESSION", "Silent Anchor (Music Stream) & State: ACTIVE")
             }
         } catch (e: Exception) {
             DebugLogger.log("SESSION", "Silent Anchor ERROR: ${e.message}")
@@ -508,10 +525,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
             isFocusHeld = true
             DebugLogger.log("SESSION", "Focus GRANTED: Displacing other apps")
+            
+            // Set session active BEFORE firing the notification update
             mediaSession?.isActive = true
+            
             startSilentLoop()
-            // Update notification to apply MediaStyle changes immediately
-            updateNotification("System Guardian", "Media Hijack Successful")
+            updateNotification("System Guardian", "Media Lock Active")
         } else {
             isFocusHeld = false
             DebugLogger.log("SESSION", "Focus DENIED: Retrying...")
