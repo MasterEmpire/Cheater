@@ -11,7 +11,8 @@ import android.view.WindowManager
 class WakeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+        DebugLogger.log("WAKE_ACTIVITY", "onCreate: Attempting to punch through lockscreen")
+
         // Maximum Window Force
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
