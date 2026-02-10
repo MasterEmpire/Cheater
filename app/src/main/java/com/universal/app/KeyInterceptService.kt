@@ -299,13 +299,11 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens(): Boolean {
-        val root = rootInActiveWindow ?: run {
-            DebugLogger.log("LENS_SCAN", "Searching... (Root Window Empty)")
-            return false
-        }
+        val root = rootInActiveWindow ?: return false
         
         var lensNode: AccessibilityNodeInfo? = null
-        val searchTerms = listOf(".5", "0.5", "ultra", "wide")
+        // Expanded search terms for global camera variants
+        val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "ultra", "wide", "zoom out")
         val bounds = Rect()
 
         val queue = LinkedList<AccessibilityNodeInfo>()
@@ -358,11 +356,13 @@ class KeyInterceptService : AccessibilityService() {
         if (!isLensSwitchPending) return
         
         if (retries <= 0) {
-            DebugLogger.log("AUTO_CAM", "TIMEOUT: Lens button never appeared or never accepted clicks")
-            speak("Optimization timed out. Lens may not have switched.", true)
-            isLensSwitchPending = false
+            DebugLogger.log("AUTO_CAM", "TIMEOUT: Manual search failed. Trying coordinate fallback.")
+            speak("Cannot find lens button. Using position fallback.", true)
             
-            // Apply touch blocker anyway if enabled, so the user isn't left vulnerable
+            // Coordinate Fallback: Try blind-clicking standard ultra-wide locations
+            clickLensCoordinatesFallback()
+            
+            isLensSwitchPending = false
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             return
@@ -371,16 +371,33 @@ class KeyInterceptService : AccessibilityService() {
         handler.postDelayed({
             if (!isLensSwitchPending) return@postDelayed
             
+            // Heartbeat feedback so user isn't blind
+            if (retries == 20) speak("Still searching", false)
+            if (retries == 10) speak("Wait a moment", false)
+
             val success = prepareWideLens()
             if (success) {
                 isLensSwitchPending = false
                 val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             } else {
-                if (retries % 5 == 0) DebugLogger.log("AUTO_CAM", "Scanning... ($retries retries left)")
                 attemptLensSwitch(retries - 1)
             }
         }, 500)
+    }
+
+    private fun clickLensCoordinatesFallback() {
+        val metrics = resources.displayMetrics
+        // Standard ultra-wide button is usually centered but slightly above the shutter
+        val x = metrics.widthPixels / 2f
+        val y = metrics.heightPixels * 0.70f 
+
+        val clickPath = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
+            .build()
+        dispatchGesture(gesture, null, null)
+        hapticPulse(100)
     }
 
     private fun performPinchFallback() {
@@ -588,26 +605,29 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
-            // Only trigger a new optimization if the package has actually CHANGED
-            // This prevents the loop caused by content updates (focus, timers, etc.)
+            // TRIGGER 1: New App Open
             if (lastCameraPackage != pkg) {
                 lastCameraPackage = pkg
                 isLensSwitchPending = true
-                DebugLogger.log("AUTO_CAM", "New Camera Session: $pkg")
-                speak("Optimizing camera settings", true)
-                attemptLensSwitch(25)
+                DebugLogger.log("AUTO_CAM", "Camera Detected: $pkg")
+                speak("Camera opened. Optimizing...", true)
+                attemptLensSwitch(30)
+                return
             }
-            
-            // Safety: If switch is pending but content changed, keep trying
+
+            // TRIGGER 2: Content Changed (Button finally appeared)
             if (isLensSwitchPending && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
-                // attemptLensSwitch handles its own recursion, no action needed here
+                val success = prepareWideLens()
+                if (success) {
+                    isLensSwitchPending = false
+                    if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+                }
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            // Only clear session if we move to a DIFFERENT app package that isn't a system overlay
             val isSystem = pkg == "android" || pkg == "com.android.systemui" || pkg == "com.google.android.permissioncontroller"
             if (!isCam && !isSystem && pkg.isNotEmpty()) {
                 if (lastCameraPackage.isNotEmpty()) {
-                    DebugLogger.log("AUTO_CAM", "Exited Camera to $pkg. Cleaning up.")
+                    DebugLogger.log("AUTO_CAM", "Session Closed. Destination: $pkg")
                     lastCameraPackage = ""
                     isLensSwitchPending = false
                     removeTouchBlocker()
