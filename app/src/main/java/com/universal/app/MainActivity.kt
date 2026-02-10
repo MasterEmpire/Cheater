@@ -140,13 +140,17 @@ fun AppDashboard() {
                         SettingsToggle("Camera Touch Blocker", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
                         
                         Button(
-                            onClick = { context.startService(Intent(context, PlaybackService::class.java).apply { action = "CLAIM_FOCUS" }) },
+                            onClick = { 
+                                context.startService(Intent(context, PlaybackService::class.java).apply { action = "CLAIM_FOCUS" })
+                                Toast.makeText(context, "Media Session Locked & Silent Anchor Active", Toast.LENGTH_SHORT).show()
+                            },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            shape = MaterialTheme.shapes.medium
+                            shape = MaterialTheme.shapes.medium,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
                         ) { 
                             Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("LOCK MEDIA SESSION") 
+                            Text("FORCE MEDIA LOCK") 
                         }
                     }
                 }
