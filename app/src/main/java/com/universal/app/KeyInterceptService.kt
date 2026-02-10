@@ -312,8 +312,6 @@ class KeyInterceptService : AccessibilityService() {
         var lensNode: AccessibilityNodeInfo? = null
         val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "0.5x", "0,5x", "ultra", "wide", "zoom out")
         val bounds = Rect()
-        var nodesScanned = 0
-        val foundElements = mutableListOf<String>()
 
         val queue = LinkedList<AccessibilityNodeInfo>()
         queue.add(root)
@@ -322,16 +320,9 @@ class KeyInterceptService : AccessibilityService() {
             val text = node.text?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
             
-            if (node.isClickable || text.isNotEmpty() || desc.isNotEmpty()) {
-                foundElements.add("T:$text|D:$desc")
-            }
-
             val match = searchTerms.find { (text.contains(it) || desc.contains(it)) && !text.contains("1x") }
 
             if (match != null) {
-                node.getBoundsInScreen(bounds)
-                DebugLogger.log("LENS_FIND", "Match: '$match' at [${bounds.centerX()}, ${bounds.centerY()}]")
-                
                 var current: AccessibilityNodeInfo? = node
                 var depth = 0
                 while (current != null && depth < 6) {
@@ -344,38 +335,35 @@ class KeyInterceptService : AccessibilityService() {
                 }
                 if (lensNode != null) break
             }
-            nodesScanned++
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
 
         return if (lensNode != null) {
-            lensNode.getBoundsInScreen(bounds)
-            val centerX = bounds.centerX().toFloat()
-            val centerY = bounds.centerY().toFloat()
+            // Try Virtual Click first (Robust Verification)
+            val success = lensNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             
-            DebugLogger.log("LENS_FLOW", "Samsung Node detected at [$centerX, $centerY]. Injecting physical tap.")
-            
-            // Physical Gesture Injection (Bypasses Samsung's Click-Blocking)
-            val clickPath = Path().apply { moveTo(centerX, centerY) }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
-                .build()
-            
-            val dispatchResult = dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
-                override fun onCompleted(gestureDescription: GestureDescription?) {
-                    DebugLogger.log("LENS_FLOW", "Physical tap delivered to lens bubble")
-                    speak("Wide lens activated", true)
-                    hapticPulse(50)
-                }
-            }, null)
-
-            true // Return true because we successfully dispatched the tap attempt
-        } else {
-            // Deep Diagnostic: If we found nothing, log the top 5 elements we saw
-            if (nodesScanned > 0 && foundElements.isNotEmpty()) {
-                val sample = foundElements.take(5).joinToString(", ")
-                DebugLogger.log("UI_TRACE", "Scan result: No match in $nodesScanned nodes. Samples: $sample")
+            if (success) {
+                DebugLogger.log("LENS_FLOW", "Virtual click SUCCESS")
+                speak("Wide lens activated", true)
+                hapticPulse(50)
+                true
+            } else {
+                // Fallback to Physical Tap for Samsung/Google Camera
+                lensNode.getBoundsInScreen(bounds)
+                val x = bounds.centerX().toFloat()
+                val y = bounds.centerY().toFloat()
+                
+                val clickPath = Path().apply { moveTo(x, y) }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
+                    .build()
+                
+                dispatchGesture(gesture, null, null)
+                DebugLogger.log("LENS_FLOW", "Virtual click REJECTED. Physical tap dispatched to $x, $y")
+                // Return false so the retry loop continues to verify the switch
+                false
             }
+        } else {
             false
         }
     }
@@ -384,11 +372,8 @@ class KeyInterceptService : AccessibilityService() {
         if (!isLensSwitchPending) return
         
         if (retries <= 0) {
-            DebugLogger.log("LENS_FLOW", "CRITICAL: Search timed out after 35 attempts.")
-            speak("Optimization timed out. Using fallback.", true)
-            
+            DebugLogger.log("LENS_FLOW", "Search timed out. Applying fallback coordinates.")
             clickLensCoordinatesFallback()
-            
             isLensSwitchPending = false
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
@@ -398,12 +383,9 @@ class KeyInterceptService : AccessibilityService() {
         handler.postDelayed({
             if (!isLensSwitchPending) return@postDelayed
             
-            // Heartbeat feedback so user isn't blind
-            if (retries == 20) speak("Still searching", false)
-            if (retries == 10) speak("Wait a moment", false)
-
             val success = prepareWideLens()
             if (success) {
+                DebugLogger.log("LENS_FLOW", "Lens switch CONFIRMED.")
                 isLensSwitchPending = false
                 val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
