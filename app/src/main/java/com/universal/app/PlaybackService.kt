@@ -542,34 +542,29 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var wakeRetryCount = 0
     private fun wakeDevice(pm: PowerManager) {
         val isInteractive = pm.isInteractive
-        DebugLogger.log("WAKE_TRACE", "Initiating sequence. Current Physical State: $isInteractive")
+        DebugLogger.log("WAKE_FLOW", "Wake Request. Interactive=$isInteractive, OverlayPerm=${android.provider.Settings.canDrawOverlays(this)}")
         
         if (isInteractive) {
-            speakStatus("Screen is already on", true)
+            speakStatus("Display is already active", true)
             return
         }
 
         try {
-            DebugLogger.log("WAKE_TRACE", "Firing WakeActivity and Hardware WakeLock")
-            
-            // 1. Hardware Force
-            val wl = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, 
-                "UniversalApp::HardWake"
-            )
+            // 1. Hardware Level Wake
+            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::HardWake")
             wl.acquire(3000)
+            DebugLogger.log("WAKE_FLOW", "Hardware WakeLock acquired for 3s")
 
-            // 2. Software Overlay Bridge
+            // 2. Activity Level Wake (Handles Keyguard)
             val intent = Intent(this, WakeActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
             startActivity(intent)
+            DebugLogger.log("WAKE_FLOW", "WakeActivity Intent dispatched")
 
-            // 3. Start Verification Loop
             verifyPhysicalWake(pm, 0)
-
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Sequence Crash: ${e.message}")
+            DebugLogger.log("WAKE_FLOW", "CRITICAL ERROR: ${e.message}")
         }
     }
 
