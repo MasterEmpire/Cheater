@@ -86,7 +86,10 @@ class ImageMonitorService : Service() {
         DebugLogger.log("SERVICE", "Observer initiated on MediaStore")
         observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean, uri: Uri?) {
-        val isActive = prefs.getBoolean("is_active", true)
+                // Check main switch state (Default: True)
+                val isActive = prefs.getBoolean("is_active", true)
+                if (!isActive) return
+
                 val now = System.currentTimeMillis()
                 if (now - lastEventTime < 2000) return
                 lastEventTime = now
