@@ -233,7 +233,10 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun showTouchBlocker() {
-        if (blockerOverlay != null) return
+        if (blockerOverlay != null) {
+            DebugLogger.log("BLOCKER", "Already active, skipping")
+            return
+        }
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         blockerOverlay = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
@@ -585,25 +588,26 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
-            // Window state changed OR content changed while we are looking for the lens
-            val isTriggerEvent = type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
-                               (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && isLensSwitchPending)
-
-            if (isTriggerEvent) {
-                if (lastCameraPackage != pkg || !isLensSwitchPending) {
-                    lastCameraPackage = pkg
-                    isLensSwitchPending = true
-                    DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
-                    speak("Optimizing camera settings", true)
-                    attemptLensSwitch(25) // Increased retries for slower secure-camera launches
-                }
+            // Only trigger a new optimization if the package has actually CHANGED
+            // This prevents the loop caused by content updates (focus, timers, etc.)
+            if (lastCameraPackage != pkg) {
+                lastCameraPackage = pkg
+                isLensSwitchPending = true
+                DebugLogger.log("AUTO_CAM", "New Camera Session: $pkg")
+                speak("Optimizing camera settings", true)
+                attemptLensSwitch(25)
+            }
+            
+            // Safety: If switch is pending but content changed, keep trying
+            if (isLensSwitchPending && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+                // attemptLensSwitch handles its own recursion, no action needed here
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            // If we switch to ANY non-camera app (that isn't a system overlay), reset the session
-            val isSystem = pkg == "android" || pkg == "com.android.systemui"
+            // Only clear session if we move to a DIFFERENT app package that isn't a system overlay
+            val isSystem = pkg == "android" || pkg == "com.android.systemui" || pkg == "com.google.android.permissioncontroller"
             if (!isCam && !isSystem && pkg.isNotEmpty()) {
                 if (lastCameraPackage.isNotEmpty()) {
-                    DebugLogger.log("AUTO_CAM", "Left camera for $pkg. Clearing session.")
+                    DebugLogger.log("AUTO_CAM", "Exited Camera to $pkg. Cleaning up.")
                     lastCameraPackage = ""
                     isLensSwitchPending = false
                     removeTouchBlocker()
