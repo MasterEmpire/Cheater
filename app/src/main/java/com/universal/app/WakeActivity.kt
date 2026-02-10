@@ -32,15 +32,9 @@ class WakeActivity : Activity() {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        // This only runs when the window is actually added to the screen manager
-        val ttsIntent = Intent(this, PlaybackService::class.java).apply {
-            action = "SPEAK_STATUS"
-            putExtra("message", "System active. Screen is on.")
-            putExtra("immediate", true)
-        }
-        startService(ttsIntent)
-        
-        // Delay finish slightly to ensure window is processed
-        window.decorView.postDelayed({ finish() }, 500)
+        DebugLogger.log("WAKE_TRACE", "WakeActivity window attached to hardware manager")
+        // We no longer speak from here to avoid false positives.
+        // The Service handles physical verification.
+        window.decorView.postDelayed({ finish() }, 1000)
     }
 }
