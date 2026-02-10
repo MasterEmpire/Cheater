@@ -308,7 +308,7 @@ class KeyInterceptService : AccessibilityService() {
         }
         
         var lensNode: AccessibilityNodeInfo? = null
-        val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "ultra", "wide", "zoom out")
+        val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "0.5x", "0,5x", "ultra", "wide", "zoom out")
         val bounds = Rect()
         var nodesScanned = 0
 
@@ -343,17 +343,26 @@ class KeyInterceptService : AccessibilityService() {
 
         return if (lensNode != null) {
             lensNode.getBoundsInScreen(bounds)
-            DebugLogger.log("UI_TRACE", "Target found after scanning $nodesScanned nodes. Center: ${bounds.centerX()}, ${bounds.centerY()}")
-            val result = lensNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            if (result) {
-                DebugLogger.log("LENS_FLOW", "Success: Action_Click accepted by Lens Node")
-                speak("Wide lens activated", true)
-                hapticPulse(50)
-                true
-            } else {
-                DebugLogger.log("LENS_FLOW", "Warning: Node found but Action_Click rejected. Retrying...")
-                false
-            }
+            val centerX = bounds.centerX().toFloat()
+            val centerY = bounds.centerY().toFloat()
+            
+            DebugLogger.log("LENS_FLOW", "Samsung Node detected at [$centerX, $centerY]. Injecting physical tap.")
+            
+            // Physical Gesture Injection (Bypasses Samsung's Click-Blocking)
+            val clickPath = Path().apply { moveTo(centerX, centerY) }
+            val gesture = GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
+                .build()
+            
+            val dispatchResult = dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(gestureDescription: GestureDescription?) {
+                    DebugLogger.log("LENS_FLOW", "Physical tap delivered to lens bubble")
+                    speak("Wide lens activated", true)
+                    hapticPulse(50)
+                }
+            }, null)
+
+            true // Return true because we successfully dispatched the tap attempt
         } else {
             false
         }
@@ -621,7 +630,7 @@ class KeyInterceptService : AccessibilityService() {
         val isCam = pkg.contains("camera", ignoreCase = true) || 
                     pkg.contains("lens", ignoreCase = true) || 
                     pkg.contains("capture", ignoreCase = true) || 
-                    pkg.contains("sec.android.app.", ignoreCase = true)
+                    pkg == "com.sec.android.app.camera"
 
         if (isCam) {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
