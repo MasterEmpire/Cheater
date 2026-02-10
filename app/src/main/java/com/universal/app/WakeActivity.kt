@@ -11,6 +11,7 @@ import android.view.WindowManager
 class WakeActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        DebugLogger.log("WAKE_FLOW", "WakeActivity Created. Flags: ShowWhenLocked=True, TurnScreenOn=True")
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
