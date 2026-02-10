@@ -19,8 +19,12 @@ jobs:
       - name: Setup Gradle & Cache
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Generate Deterministic Keystore
+        run: |
+          keytool -genkey -v -keystore app/persistent.keystore -alias appkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Universal, OU=App, O=Universal, L=World, ST=World, C=US"
+
       - name: Build APK
-        run: gradle assembleDebug
+        run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
