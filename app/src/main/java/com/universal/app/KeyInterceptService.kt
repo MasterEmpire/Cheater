@@ -216,19 +216,22 @@ class KeyInterceptService : AccessibilityService() {
         val root = rootInActiveWindow
         val currentPackage = root?.packageName?.toString() ?: ""
         
-        if (currentPackage.contains("camera") || currentPackage.contains("lens")) {
-            DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing via HOME.")
+        if (currentPackage.contains("camera") || currentPackage.contains("lens") || currentPackage.contains("capture")) {
+            DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing.")
             speak("Closing camera", true)
             removeTouchBlocker()
             performGlobalAction(GLOBAL_ACTION_HOME)
         } else {
-            DebugLogger.log("CAM_TOGGLE", "Launching Camera")
+            DebugLogger.log("CAM_TOGGLE", "Launching Hardware Camera")
             speak("Opening camera", true)
+            
+            // Force the service into 'Pending' state immediately so it doesn't miss the window
+            isLensSwitchPending = true
+            lastCameraPackage = "" // Reset to force trigger in onAccessibilityEvent
+            
             val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
-            
-            // Logic moved to onAccessibilityEvent for global robustness
         }
     }
 
@@ -360,10 +363,9 @@ class KeyInterceptService : AccessibilityService() {
         if (!isLensSwitchPending) return
         
         if (retries <= 0) {
-            DebugLogger.log("AUTO_CAM", "TIMEOUT: Manual search failed. Trying coordinate fallback.")
-            speak("Cannot find lens button. Using position fallback.", true)
+            DebugLogger.log("LENS_FLOW", "CRITICAL: Search timed out after 35 attempts.")
+            speak("Optimization timed out. Using fallback.", true)
             
-            // Coordinate Fallback: Try blind-clicking standard ultra-wide locations
             clickLensCoordinatesFallback()
             
             isLensSwitchPending = false
@@ -464,8 +466,14 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun hapticPulse(ms: Long) {
-        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+        try {
+            val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (v.hasVibrator()) {
+                v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+            }
+        } catch (e: Exception) { 
+            DebugLogger.log("HAPTIC_ERR", "${e.message}")
+        }
     }
 
     private fun clickShutterCoordinates() {
@@ -603,7 +611,17 @@ class KeyInterceptService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val type = event?.eventType
         val pkg = event?.packageName?.toString() ?: ""
-        val isCam = pkg.contains("camera") || pkg.contains("lens")
+        
+        // Omniscient Logging: Track every app transition to find hidden camera packages
+        if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            DebugLogger.log("WINDOW_TRACE", "Focus moved to: $pkg")
+        }
+
+        // Broadened Detection: Some cameras hide under 'capture', 'sec' (Samsung), or 'imaging'
+        val isCam = pkg.contains("camera", ignoreCase = true) || 
+                    pkg.contains("lens", ignoreCase = true) || 
+                    pkg.contains("capture", ignoreCase = true) || 
+                    pkg.contains("sec.android.app.", ignoreCase = true)
 
         if (isCam) {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
