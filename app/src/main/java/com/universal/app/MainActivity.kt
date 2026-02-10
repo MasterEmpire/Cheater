@@ -141,8 +141,9 @@ fun AppDashboard() {
                         
                         Button(
                             onClick = { 
+                                DebugLogger.log("UI_ACTION", "User triggered Force Media Lock. Auditing system state...")
                                 context.startService(Intent(context, PlaybackService::class.java).apply { action = "CLAIM_FOCUS" })
-                                Toast.makeText(context, "Media Session Locked & Silent Anchor Active", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Executing Deep Authority Hijack...", Toast.LENGTH_SHORT).show()
                             },
                             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                             shape = MaterialTheme.shapes.medium,
