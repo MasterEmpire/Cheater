@@ -37,6 +37,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     override fun onCreate() {
         super.onCreate()
+        DebugLogger.init(applicationContext)
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ScreenOffKeys")
         wakeLock?.acquire(3 * 60 * 60 * 1000L)
