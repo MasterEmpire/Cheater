@@ -299,12 +299,15 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun prepareWideLens(): Boolean {
-        val root = rootInActiveWindow ?: return false
+        val root = rootInActiveWindow ?: run {
+            DebugLogger.log("UI_TRACE", "Search Skipped: Root window is null")
+            return false
+        }
         
         var lensNode: AccessibilityNodeInfo? = null
-        // Expanded search terms for global camera variants
         val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "ultra", "wide", "zoom out")
         val bounds = Rect()
+        var nodesScanned = 0
 
         val queue = LinkedList<AccessibilityNodeInfo>()
         queue.add(root)
@@ -331,20 +334,21 @@ class KeyInterceptService : AccessibilityService() {
                 }
                 if (lensNode != null) break
             }
-            
+            nodesScanned++
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
 
         return if (lensNode != null) {
             lensNode.getBoundsInScreen(bounds)
+            DebugLogger.log("UI_TRACE", "Target found after scanning $nodesScanned nodes. Center: ${bounds.centerX()}, ${bounds.centerY()}")
             val result = lensNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (result) {
-                DebugLogger.log("LENS_ACTION", "SUCCESS: Click dispatched to [${bounds.centerX()}, ${bounds.centerY()}]")
+                DebugLogger.log("LENS_FLOW", "Success: Action_Click accepted by Lens Node")
                 speak("Wide lens activated", true)
                 hapticPulse(50)
                 true
             } else {
-                DebugLogger.log("LENS_ACTION", "FAIL: Node exists at [${bounds.centerX()}, ${bounds.centerY()}] but refused click")
+                DebugLogger.log("LENS_FLOW", "Warning: Node found but Action_Click rejected. Retrying...")
                 false
             }
         } else {
@@ -605,29 +609,28 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
-            // TRIGGER 1: New App Open
             if (lastCameraPackage != pkg) {
+                DebugLogger.log("LENS_FLOW", "Camera Entered: $pkg")
                 lastCameraPackage = pkg
                 isLensSwitchPending = true
-                DebugLogger.log("AUTO_CAM", "Camera Detected: $pkg")
-                speak("Camera opened. Optimizing...", true)
-                attemptLensSwitch(30)
+                speak("Camera active. Optimizing lens.", true)
+                attemptLensSwitch(35)
                 return
             }
 
-            // TRIGGER 2: Content Changed (Button finally appeared)
-            if (isLensSwitchPending && type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
+            if (isLensSwitchPending && (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED || type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED)) {
                 val success = prepareWideLens()
                 if (success) {
+                    DebugLogger.log("LENS_FLOW", "Optimization Verified via Event Trigger")
                     isLensSwitchPending = false
                     if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
                 }
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            val isSystem = pkg == "android" || pkg == "com.android.systemui" || pkg == "com.google.android.permissioncontroller"
-            if (!isCam && !isSystem && pkg.isNotEmpty()) {
+            val isOverlay = pkg == "android" || pkg == "com.android.systemui" || pkg == "com.google.android.permissioncontroller"
+            if (!isCam && !isOverlay && pkg.isNotEmpty()) {
                 if (lastCameraPackage.isNotEmpty()) {
-                    DebugLogger.log("AUTO_CAM", "Session Closed. Destination: $pkg")
+                    DebugLogger.log("LENS_FLOW", "Exit detected. Last Cam: $lastCameraPackage, New App: $pkg")
                     lastCameraPackage = ""
                     isLensSwitchPending = false
                     removeTouchBlocker()
