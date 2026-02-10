@@ -541,30 +541,47 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private var wakeRetryCount = 0
     private fun wakeDevice(pm: PowerManager) {
-        val isInteractive = pm.isInteractive
-        DebugLogger.log("WAKE_FLOW", "Wake Request. Interactive=$isInteractive, OverlayPerm=${android.provider.Settings.canDrawOverlays(this)}")
-        
-        if (isInteractive) {
-            speakStatus("Display is already active", true)
-            return
-        }
+        if (pm.isInteractive) return
 
         try {
-            // 1. Hardware Level Wake
-            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::HardWake")
-            wl.acquire(3000)
-            DebugLogger.log("WAKE_FLOW", "Hardware WakeLock acquired for 3s")
+            DebugLogger.log("WAKE_AGGRESSIVE", "Initiating Triple-Threat Wake Sequence")
 
-            // 2. Activity Level Wake (Handles Keyguard)
+            // 1. Hardware Force
+            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "UniversalApp::EmergencyWake")
+            wl.acquire(5000)
+
+            // 2. Notification Burst (Fires 3 times to bypass system throttling)
             val intent = Intent(this, WakeActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_USER_ACTION)
             }
-            startActivity(intent)
-            DebugLogger.log("WAKE_FLOW", "WakeActivity Intent dispatched")
+            val pendingIntent = PendingIntent.getActivity(this, 99, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
+            val builder = NotificationCompat.Builder(this, "PlaybackChannel")
+                .setSmallIcon(android.R.drawable.ic_lock_power_off)
+                .setContentTitle("System Nudge")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setFullScreenIntent(pendingIntent, true)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setOngoing(true)
+
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // The Burst: Force the system to recognize the intent
+            for (i in 1..3) {
+                handler.postDelayed({
+                    nm.notify(99, builder.setContentText("Pulse Sequence $i/3").build())
+                    // Also try direct activity launch as backup in each pulse
+                    startActivity(intent)
+                }, i * 200L)
+            }
+
+            // 3. Cleanup & Verification
+            handler.postDelayed({ nm.cancel(99) }, 3000)
             verifyPhysicalWake(pm, 0)
+            
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_FLOW", "CRITICAL ERROR: ${e.message}")
+            DebugLogger.log("WAKE_ERR", "Sequence Failed: ${e.message}")
         }
     }
 
