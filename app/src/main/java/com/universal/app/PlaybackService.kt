@@ -136,7 +136,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
              DebugLogger.log("SVC", "Cmd Received: ${intent?.action} ${intent?.extras?.keySet()?.joinToString() ?: ""}")
         }
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        val isActive = prefs.getBoolean("is_active", false)
+        val isActive = prefs.getBoolean("is_active", true)
+        DebugLogger.log("SVC_START", "PlaybackService Status Check: Active=$isActive")
 
         if (isActive) {
             claimMediaFocus()
@@ -639,7 +640,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         DebugLogger.log("HEADSET_EVENT", "Vibration Triggered Successfully")
 
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        val actuallyActive = prefs.getBoolean("is_active", false)
+        val actuallyActive = prefs.getBoolean("is_active", true)
         
         if (!actuallyActive) {
             DebugLogger.log("HEADSET_EVENT", "Ignored: System is marked INACTIVE in SharedPreferences")
