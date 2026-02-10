@@ -290,12 +290,13 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun prepareWideLens(): Boolean {
         val root = rootInActiveWindow ?: run {
-            DebugLogger.log("LENS_ERR", "Root window is null - UI not ready")
+            DebugLogger.log("LENS_SCAN", "Searching... (Root Window Empty)")
             return false
         }
         
         var lensNode: AccessibilityNodeInfo? = null
         val searchTerms = listOf(".5", "0.5", "ultra", "wide")
+        val bounds = Rect()
 
         val queue = LinkedList<AccessibilityNodeInfo>()
         queue.add(root)
@@ -303,42 +304,42 @@ class KeyInterceptService : AccessibilityService() {
             val node = queue.poll() ?: continue
             val text = node.text?.toString()?.lowercase() ?: ""
             val desc = node.contentDescription?.toString()?.lowercase() ?: ""
-            val viewId = node.viewIdResourceName ?: ""
             
             val match = searchTerms.find { (text.contains(it) || desc.contains(it)) && !text.contains("1x") }
 
             if (match != null) {
-                DebugLogger.log("LENS_TRACE", "Match found! Term: '$match' | Text: '$text' | Desc: '$desc' | ID: $viewId")
+                node.getBoundsInScreen(bounds)
+                DebugLogger.log("LENS_FIND", "Target Found: '$match' at [${bounds.centerX()}, ${bounds.centerY()}]")
                 
                 var current: AccessibilityNodeInfo? = node
                 var depth = 0
-                while (current != null && depth < 5) {
+                while (current != null && depth < 6) {
                     if (current.isClickable) {
                         lensNode = current
-                        DebugLogger.log("LENS_TRACE", "Found clickable wrapper at depth $depth")
                         break
                     }
                     current = current.parent
                     depth++
                 }
-                if (lensNode != null) break else DebugLogger.log("LENS_TRACE", "Match found but no clickable parent")
+                if (lensNode != null) break
             }
             
             for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
         }
 
         return if (lensNode != null) {
+            lensNode.getBoundsInScreen(bounds)
             val result = lensNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
             if (result) {
-                DebugLogger.log("LENS", "Action Dispatched: CLICK SUCCESS")
-                speak("Wide lens activated")
+                DebugLogger.log("LENS_ACTION", "SUCCESS: Click dispatched to [${bounds.centerX()}, ${bounds.centerY()}]")
+                speak("Wide lens activated", true)
                 hapticPulse(50)
+                true
             } else {
-                DebugLogger.log("LENS_ERR", "Action Dispatched but REJECTED by system")
+                DebugLogger.log("LENS_ACTION", "FAIL: Node exists at [${bounds.centerX()}, ${bounds.centerY()}] but refused click")
+                false
             }
-            result
         } else {
-            // No log here to prevent flooding during the 25 retries
             false
         }
     }
@@ -347,23 +348,26 @@ class KeyInterceptService : AccessibilityService() {
         if (!isLensSwitchPending) return
         
         if (retries <= 0) {
-            DebugLogger.log("AUTO_CAM", "Automation timed out - Lens button not found")
+            DebugLogger.log("AUTO_CAM", "TIMEOUT: Lens button never appeared or never accepted clicks")
+            speak("Optimization timed out. Lens may not have switched.", true)
             isLensSwitchPending = false
+            
+            // Apply touch blocker anyway if enabled, so the user isn't left vulnerable
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             return
         }
 
         handler.postDelayed({
             if (!isLensSwitchPending) return@postDelayed
             
-            DebugLogger.log("AUTO_CAM", "Scanning for lens controls... (Retries left: $retries)")
             val success = prepareWideLens()
-            
             if (success) {
                 isLensSwitchPending = false
-                DebugLogger.log("AUTO_CAM", "Target Success: Lens Switched")
                 val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                 if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
             } else {
+                if (retries % 5 == 0) DebugLogger.log("AUTO_CAM", "Scanning... ($retries retries left)")
                 attemptLensSwitch(retries - 1)
             }
         }, 500)
