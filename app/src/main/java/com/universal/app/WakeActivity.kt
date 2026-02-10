@@ -28,10 +28,6 @@ class WakeActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             km.requestDismissKeyguard(this, null)
         }
-
-        val cameraIntent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
-        cameraIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        startActivity(cameraIntent)
     }
 
     override fun onAttachedToWindow() {
