@@ -632,21 +632,25 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val isScreenOff = !pm.isInteractive
         
+        DebugLogger.log("HEADSET_EVENT", "--- HEADSET CLICK DETECTED ---")
+        DebugLogger.log("HEADSET_EVENT", "Interactive (Screen On): ${!isScreenOff}")
+        
         vibrator?.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+        DebugLogger.log("HEADSET_EVENT", "Vibration Triggered Successfully")
 
-        // FORCE RELOAD preferences to fix the "Ignored: System Inactive" bug
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val actuallyActive = prefs.getBoolean("is_active", false)
         
-        DebugLogger.log("HEADSET_EVENT", "Click Received. Active=$actuallyActive, ScreenOff=$isScreenOff")
-
-        if (!actuallyActive) return
+        if (!actuallyActive) {
+            DebugLogger.log("HEADSET_EVENT", "Ignored: System is marked INACTIVE in SharedPreferences")
+            return
+        }
 
         if (isScreenOff) {
-            DebugLogger.log("WAKE_TRIGGER", "Initiating emergency wake sequence...")
+            DebugLogger.log("HEADSET_EVENT", "SCREEN IS OFF -> Branching to wakeDevice()")
             wakeDevice(pm)
         } else {
-            DebugLogger.log("WAKE_TRIGGER", "Screen already on. Sending shutter signal.")
+            DebugLogger.log("HEADSET_EVENT", "SCREEN IS ON -> Broadcasting SHUTTER signal")
             val intent = Intent("com.universal.app.HEADSET_TRIGGER_SHUTTER")
             sendBroadcast(intent)
         }
@@ -654,48 +658,71 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private var wakeRetryCount = 0
     private fun wakeDevice(pm: PowerManager) {
-        if (pm.isInteractive) return
-    private fun wakeDevice(pm: PowerManager) {
-        if (pm.isInteractive) return
-        DebugLogger.log("WAKE", "Executing High-Priority Physical Wake...")
+        DebugLogger.log("WAKE_TRACE", "Step 1: Entering wakeDevice() function")
+        
+        if (pm.isInteractive) {
+            DebugLogger.log("WAKE_TRACE", "Step 1.1: Cancelled - Device is already interactive")
+            return
+        }
 
         try {
-            // 1. Prepare Intent with distinct requestCode
+            // 1. Prepare Intent
+            DebugLogger.log("WAKE_TRACE", "Step 2: Building WakeActivity Intent")
             val intent = Intent(this, WakeActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or 
+                         Intent.FLAG_ACTIVITY_CLEAR_TOP or 
+                         Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
+            
             val pendingIntent = PendingIntent.getActivity(
                 this, 
-                System.currentTimeMillis().toInt(), 
+                999, 
                 intent, 
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            DebugLogger.log("WAKE_TRACE", "Step 3: PendingIntent created (ID: 999)")
 
-            // 2. Build Notification with FullScreenIntent (Mandatory for lockscreen bypass)
+            // 2. Build High-Priority Notification
             val builder = NotificationCompat.Builder(this, "PlaybackChannel")
                 .setSmallIcon(android.R.drawable.ic_lock_power_off)
-                .setContentTitle("System Guardian")
-                .setContentText("Waking device...")
+                .setContentTitle("System Wake Request")
+                .setContentText("Click to restore visual interface")
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setFullScreenIntent(pendingIntent, true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setAutoCancel(true)
+            DebugLogger.log("WAKE_TRACE", "Step 4: Notification Builder configured with FullScreenIntent")
 
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
-            // 3. Physical Hardware Wake (Forces backlight power)
-            val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "UniversalApp::HardwareWake")
-            wl.acquire(5000)
+            // 3. Physical Hardware Wake - Using FULL_WAKE_LOCK for maximum power
+            @Suppress("DEPRECATION")
+            val wl = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "UniversalApp::EmergencyWake")
+            
+            DebugLogger.log("WAKE_TRACE", "Step 5: WakeLock created. Attempting acquire(10s)...")
+            wl.acquire(10000L)
+            DebugLogger.log("WAKE_TRACE", "Step 6: WakeLock ACQUIRED")
 
-            // 4. Fire Notification & Activity simultaneously
+            // 4. Fire Notification
+            DebugLogger.log("WAKE_TRACE", "Step 7: Dispatching Notification to NotificationManager")
             nm.notify(99, builder.build())
+            
+            // 5. Fire Activity Directly
+            DebugLogger.log("WAKE_TRACE", "Step 8: Calling startActivity(WakeActivity)")
             startActivity(intent)
+            DebugLogger.log("WAKE_TRACE", "Step 9: startActivity command sent")
 
             verifyPhysicalWake(pm, 0)
-            handler.postDelayed({ nm.cancel(99) }, 3000)
+            
+            handler.postDelayed({
+                DebugLogger.log("WAKE_TRACE", "Step 10: Cleaning up Wake Notification")
+                nm.cancel(99)
+            }, 5000)
+
         } catch (e: Exception) {
-            DebugLogger.log("WAKE_ERR", "Wake Failed: ${e.message}")
+            DebugLogger.log("WAKE_CRITICAL", "CRASH in wake sequence: ${e.message}")
+            e.printStackTrace()
         }
     }
     }
