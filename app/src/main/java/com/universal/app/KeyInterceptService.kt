@@ -559,6 +559,15 @@ class KeyInterceptService : AccessibilityService() {
             when (sequence) {
                 "S" -> intent.action = "PAUSE"
                 "SS" -> intent.action = "NEXT"
+                "SSS" -> {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+                        return
+                    } else {
+                         speak("Lock feature not supported", true)
+                         return
+                    }
+                }
                 "L" -> intent.action = "NEXT_CATEGORY"
                 "LS" -> {
                     toggleCamera()
