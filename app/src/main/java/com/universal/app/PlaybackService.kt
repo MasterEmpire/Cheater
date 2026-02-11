@@ -419,7 +419,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playCurrent() {
-    private fun playCurrent() {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         if (prefs.getBoolean("headset_only", true)) {
             val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
