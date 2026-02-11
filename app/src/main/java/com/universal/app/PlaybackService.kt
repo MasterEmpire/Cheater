@@ -74,6 +74,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         
         // 4. Register Screen Off Receiver
         registerReceiver(screenOffReceiver, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF))
+    }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
