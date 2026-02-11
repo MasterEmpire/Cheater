@@ -208,6 +208,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun speakStatus(message: String, immediate: Boolean) {
+        // Safety Gate: Block Loudspeaker Output
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
+             DebugLogger.log("SAFETY", "TTS SILENCED (Loudspeaker detected): $message")
+             return
+        }
+
         if (!isReady) return
         if (immediate) stopAllPlayback()
         
@@ -411,6 +418,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playCurrent() {
+        // Safety Gate: Block Loudspeaker Output
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
+             DebugLogger.log("SAFETY", "PLAYBACK SILENCED (Loudspeaker detected)")
+             return
+        }
+
         val list = playlists[currentType] ?: return
         if (currentIndex < 0) currentIndex = 0
         if (currentIndex >= list.size) return
