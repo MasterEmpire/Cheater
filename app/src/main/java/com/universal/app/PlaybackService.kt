@@ -18,6 +18,13 @@ import java.io.File
 import java.util.*
 
 class PlaybackService : Service(), TextToSpeech.OnInitListener {
+    private val screenOffReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
+                 speakStatus("Display deactivated", true)
+            }
+        }
+    }
     private lateinit var tts: TextToSpeech
     private var mediaSession: MediaSessionCompat? = null
     private var mediaPlayer: MediaPlayer? = null
@@ -64,7 +71,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         } else {
             startForeground(2, notification)
         }
-    }
+        
+        // 4. Register Screen Off Receiver
+        registerReceiver(screenOffReceiver, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF))
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
@@ -789,6 +798,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         DebugLogger.log("SVC", "PlaybackService Destroying: Cleaning up resources")
+        try { unregisterReceiver(screenOffReceiver) } catch(e: Exception) {}
         if (wakeLock?.isHeld == true) wakeLock?.release()
         
         // Release Silent Loop
