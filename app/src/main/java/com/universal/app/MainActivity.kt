@@ -139,6 +139,8 @@ fun AppDashboard() {
                         SettingsToggle("Intercept Media Keys", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
                         SettingsToggle("Headset Shutter", headsetTrigger) { prefs.edit().putBoolean("headset_trigger", it).apply() }
                         SettingsToggle("Camera Touch Blocker", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
+                        val headsetOnly = remember { mutableStateOf(prefs.getBoolean("headset_only", true)) }
+                        SettingsToggle("Stealth Audio (Headset Only)", headsetOnly) { prefs.edit().putBoolean("headset_only", it).apply() }
                         
                         Button(
                             onClick = { 
