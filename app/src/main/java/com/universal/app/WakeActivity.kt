@@ -37,14 +37,22 @@ class WakeActivity : Activity() {
         if (hasFocus) {
             DebugLogger.log("WAKE_TRACE", "Focus Gained. Screen is now physically visible.")
             
-            // Clean exit without launching camera (As requested)
             window.decorView.postDelayed({
+                // 1. Force Home Screen (Minimize everything else)
+                val homeIntent = Intent(Intent.ACTION_MAIN)
+                homeIntent.addCategory(Intent.CATEGORY_HOME)
+                homeIntent.flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                startActivity(homeIntent)
+
+                // 2. Announce Status
                 val ttsIntent = Intent(this, PlaybackService::class.java).apply {
                     action = "SPEAK_STATUS"
                     putExtra("message", "System active. Screen is on.")
                     putExtra("immediate", true)
                 }
                 startService(ttsIntent)
+                
+                // 3. Close Wake Activity
                 finish()
             }, 500)
         }
