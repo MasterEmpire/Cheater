@@ -208,16 +208,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun speakStatus(message: String, immediate: Boolean) {
-        // Safety Gate: Block Loudspeaker Output
-        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
-             DebugLogger.log("SAFETY", "TTS SILENCED (Loudspeaker detected): $message")
-             return
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("headset_only", true)) {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
+                DebugLogger.log("SAFETY", "TTS SILENCED: Headset required but not found.")
+                return
+            }
         }
 
         if (!isReady) return
         if (immediate) stopAllPlayback()
-        
         val id = "STATUS_${System.currentTimeMillis()}"
         ttsMessageMap[id] = message
         
@@ -418,16 +419,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playCurrent() {
-        // Safety Gate: Block Loudspeaker Output
-        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-        if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
-             DebugLogger.log("SAFETY", "PLAYBACK SILENCED (Loudspeaker detected)")
-             return
+    private fun playCurrent() {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("headset_only", true)) {
+            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
+                DebugLogger.log("SAFETY", "PLAYBACK SILENCED: Headset required but not found.")
+                return
+            }
         }
 
         val list = playlists[currentType] ?: return
         if (currentIndex < 0) currentIndex = 0
-        if (currentIndex >= list.size) return
         
         try {
             // stopAllPlayback() is already called by navigation methods calling this,
