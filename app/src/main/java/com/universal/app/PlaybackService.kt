@@ -198,27 +198,28 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun stopAllPlayback() {
+    private fun stopMediaOnly() {
         synchronized(this) {
-            DebugLogger.log("MEDIA_LIFECYCLE", "Stopping all playback and releasing resources")
-            // 1. Stop TTS
-            try {
-                if (::tts.isInitialized && isReady) tts.stop()
-            } catch (e: Exception) {}
-
-            // 2. Stop & Release MediaPlayer
             mediaPlayer?.let {
                 try {
                     if (it.isPlaying) it.stop()
                     it.reset()
                     it.release()
-                    DebugLogger.log("MEDIA_LIFECYCLE", "MediaPlayer released successfully")
-                } catch (e: Exception) {
-                    DebugLogger.log("MEDIA_ERR", "Error during release: ${e.message}")
-                }
+                    DebugLogger.log("MEDIA_LIFECYCLE", "Media stopped (TTS preserved)")
+                } catch (e: Exception) {}
             }
             mediaPlayer = null
             updateMediaSessionState(false)
+        }
+    }
+
+    private fun stopAllPlayback() {
+        synchronized(this) {
+            DebugLogger.log("MEDIA_LIFECYCLE", "Full system stop triggered")
+            try {
+                if (::tts.isInitialized && isReady) tts.stop()
+            } catch (e: Exception) {}
+            stopMediaOnly()
         }
     }
 
@@ -401,40 +402,48 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playNext() {
-        val type = currentType
-        if (type == null) {
-            speakStatus("Category not set", true)
-            return
-        }
+        val type = currentType ?: return
+        val list = playlists[type] ?: return
         
-        val list = playlists[type]
-        if (list.isNullOrEmpty()) {
-            speakStatus("List empty", true)
+        stopMediaOnly() // Don't kill TTS, just stop the current answer
+
+        if (list.size <= 1) {
+            speakStatus("Only one solution in this category", true)
+            // Re-trigger play so it doesn't just stay silent
+            handler.postDelayed({ playCurrent() }, 1500)
             return
-        }
-        
-        stopAllPlayback()
-        if (currentIndex >= list.size - 1) {
-            currentIndex = 0
-            speakStatus("Restarting category", true)
-        } else {
-            currentIndex++
-            speakStatus("Next", true)
         }
 
-        DebugLogger.log("NAV", "Advanced to index $currentIndex in $type")
+        if (currentIndex >= list.size - 1) {
+            currentIndex = 0
+            speakStatus("Returning to first solution", true)
+        } else {
+            currentIndex++
+            speakStatus("Next solution", true)
+        }
+
+        DebugLogger.log("NAV", "Next: Index $currentIndex of ${list.size}")
         savePlaybackState()
-        handler.postDelayed({ playCurrent() }, 800)
+        handler.postDelayed({ playCurrent() }, 1500)
     }
 
     private fun playNextCategory() {
         val types = playlists.keys.toList()
+        stopMediaOnly()
+
         if (types.isEmpty()) {
-            speakStatus("No categories available. Please upload an image for analysis.", true)
+            speakStatus("No data loaded", true)
             return
         }
         
+        if (types.size <= 1) {
+            speakStatus("No other categories found", true)
+            handler.postDelayed({ playCurrent() }, 1500)
+            return
+        }
+
         val nextIndex = (types.indexOf(currentType) + 1) % types.size
+        DebugLogger.log("NAV", "Category Switch: ${types[nextIndex]}")
         playType(types[nextIndex])
     }
 
@@ -442,18 +451,23 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val type = currentType ?: return
         val list = playlists[type] ?: return
 
-        stopAllPlayback()
-        if (currentIndex <= 0) {
-            currentIndex = list.size - 1
-            speakStatus("Last item", true)
-        } else {
-            currentIndex--
-            speakStatus("Previous", true)
+        stopMediaOnly()
+        if (list.size <= 1) {
+            speakStatus("Only one solution available", true)
+            handler.postDelayed({ playCurrent() }, 1500)
+            return
         }
 
-        DebugLogger.log("NAV", "Moved back to index $currentIndex in $type")
+        if (currentIndex <= 0) {
+            currentIndex = list.size - 1
+            speakStatus("Moving to end of list", true)
+        } else {
+            currentIndex--
+            speakStatus("Previous solution", true)
+        }
+
         savePlaybackState()
-        handler.postDelayed({ playCurrent() }, 800)
+        handler.postDelayed({ playCurrent() }, 1500)
     }
 
     private fun playCurrent() {
