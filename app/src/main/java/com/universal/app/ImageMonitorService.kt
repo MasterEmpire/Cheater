@@ -22,6 +22,36 @@ class ImageMonitorService : Service() {
     
     private lateinit var observer: ContentObserver
 
+    private val watchdogHandler = Handler(Looper.getMainLooper())
+    private val watchdogRunnable = object : Runnable {
+        override fun run() {
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("is_active", true)) {
+                // 1. Update Notification to prove activity to OS
+                updateForegroundNotification()
+                // 2. Ensure PlaybackService is still alive
+                val intent = Intent(applicationContext, PlaybackService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+            watchdogHandler.postDelayed(this, 120000) // 2-minute heartbeat
+        }
+    }
+
+    private fun updateForegroundNotification() {
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("System Guardian Active")
+            .setContentText("Integrity check at ${java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())}")
+            .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(1, notification)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         DebugLogger.init(applicationContext)
         createNotificationChannel()
@@ -36,6 +66,10 @@ class ImageMonitorService : Service() {
         } else {
             startForeground(1, notification)
         }
+
+        watchdogHandler.removeCallbacks(watchdogRunnable)
+        watchdogHandler.postDelayed(watchdogRunnable, 60000)
+        
         startMonitoring()
         recoveryScan()
         return START_STICKY
