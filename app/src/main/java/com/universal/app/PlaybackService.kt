@@ -219,22 +219,32 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun speakStatus(message: String, immediate: Boolean) {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("headset_only", true)) {
-            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
-                DebugLogger.log("SAFETY", "TTS SILENCED: Headset required but not found.")
-                return
-            }
+        val headsetOnly = prefs.getBoolean("headset_only", true)
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        val hasHeadset = am.isWiredHeadsetOn || am.isBluetoothA2dpOn
+
+        DebugLogger.log("TTS_TRACE", "Attempting speak: '$message' (Immediate: $immediate, Stealth: $headsetOnly, Connected: $hasHeadset)")
+
+        if (headsetOnly && !hasHeadset) {
+            DebugLogger.log("TTS_BLOCK", "Silent Mode Active: No headset detected. Blocking output.")
+            return
         }
 
-        if (!isReady) return
+        if (!isReady) {
+            DebugLogger.log("TTS_ERR", "TTS Engine not initialized yet.")
+            return
+        }
+
         if (immediate) stopAllPlayback()
+        
         val id = "STATUS_${System.currentTimeMillis()}"
         ttsMessageMap[id] = message
-        
         val queueMode = if (immediate) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-        tts.speak(message, queueMode, null, id)
-        logAudioEnvironment()
+        
+        val result = tts.speak(message, queueMode, null, id)
+        if (result == TextToSpeech.ERROR) {
+            DebugLogger.log("TTS_ERR", "Engine rejected speech request.")
+        }
     }
 
     private fun performDeepAudit() {
@@ -351,52 +361,58 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playType(type: String) {
+        DebugLogger.log("NAV", "Switching to category: $type")
         stopAllPlayback()
         val list = playlists[type]
+        
+        val readableType = when(type) {
+            "wo" -> "worked out solutions"
+            "tf" -> "true or false"
+            "sa" -> "short answers"
+            "mc" -> "multiple choice"
+            "ma" -> "matching"
+            "fill" -> "fill in the blanks"
+            else -> "solutions"
+        }
+
         if (list.isNullOrEmpty()) {
-            val readableType = when(type) {
-                "wo" -> "worked out solutions"
-                "tf" -> "true or false"
-                "sa" -> "short answers"
-                "mc" -> "multiple choice"
-                "ma" -> "matching"
-                "fill" -> "fill in the blanks"
-                else -> type
-            }
             speakStatus("$readableType not available", true)
-            DebugLogger.log("PLAYBACK", "Attempted to play empty category: $type")
             return
         }
+
+        speakStatus("Playing $readableType", true)
         currentType = type
         currentIndex = 0
         savePlaybackState()
-        playCurrent()
+        // Add delay to let TTS finish announcement before starting file
+        handler.postDelayed({ playCurrent() }, 1500)
     }
 
     private fun playNext() {
         val type = currentType
         if (type == null) {
-            speakStatus("No category selected. Hold the button to switch categories.", true)
+            speakStatus("Category not set", true)
             return
         }
         
         val list = playlists[type]
         if (list.isNullOrEmpty()) {
-            speakStatus("This category is empty.", true)
+            speakStatus("List empty", true)
             return
         }
         
         stopAllPlayback()
-        // Loop back to start if at the end
         if (currentIndex >= list.size - 1) {
             currentIndex = 0
-            DebugLogger.log("NAV", "Looping back to start of $type")
+            speakStatus("Restarting category", true)
         } else {
             currentIndex++
+            speakStatus("Next", true)
         }
 
+        DebugLogger.log("NAV", "Advanced to index $currentIndex in $type")
         savePlaybackState()
-        playCurrent()
+        handler.postDelayed({ playCurrent() }, 800)
     }
 
     private fun playNextCategory() {
@@ -412,47 +428,65 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playPrevious() {
         val type = currentType ?: return
-        val list = playlists[type]
-        if (list.isNullOrEmpty()) return
+        val list = playlists[type] ?: return
 
         stopAllPlayback()
-        // Loop to end if at the start
         if (currentIndex <= 0) {
             currentIndex = list.size - 1
-            DebugLogger.log("NAV", "Looping to end of $type")
+            speakStatus("Last item", true)
         } else {
             currentIndex--
+            speakStatus("Previous", true)
         }
 
+        DebugLogger.log("NAV", "Moved back to index $currentIndex in $type")
         savePlaybackState()
-        playCurrent()
+        handler.postDelayed({ playCurrent() }, 800)
     }
 
     private fun playCurrent() {
-        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("headset_only", true)) {
-            val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-            if (!am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
-                DebugLogger.log("SAFETY", "PLAYBACK SILENCED: Headset required but not found.")
-                return
-            }
+        val list = playlists[currentType] ?: return
+        if (currentIndex < 0 || currentIndex >= list.size) currentIndex = 0
+        val file = list[currentIndex]
+
+        DebugLogger.log("MEDIA_TRACE", "Attempting playback of ${file.name} (Size: ${file.length()} bytes)")
+
+        // ANTI-LOOP GUARD: If file is missing or empty, do not play.
+        if (!file.exists() || file.length() < 500) {
+            DebugLogger.log("MEDIA_ERR", "ABORT: File ${file.name} is too small or missing. Likely still synthesizing.")
+            speakStatus("Solution file is not ready yet", false)
+            return
         }
 
-        val list = playlists[currentType] ?: return
-        if (currentIndex < 0) currentIndex = 0
-        
         try {
-            // stopAllPlayback() is already called by navigation methods calling this,
-            // but we ensure clean state here regardless
             if (mediaPlayer == null) {
                 mediaPlayer = MediaPlayer().apply {
-                    setDataSource(list[currentIndex].absolutePath)
+                    setDataSource(file.absolutePath)
+                    setAudioAttributes(android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build())
                     prepareAsync()
-                    setOnPreparedListener { start() }
-                    setOnCompletionListener { playNext() }
+                    setOnPreparedListener { 
+                        DebugLogger.log("MEDIA", "Starting Playback: ${file.name}")
+                        start() 
+                    }
+                    setOnErrorListener { _, what, extra ->
+                        DebugLogger.log("MEDIA_ERR", "MediaPlayer Error: $what / $extra")
+                        stopAllPlayback()
+                        true
+                    }
+                    setOnCompletionListener {
+                        DebugLogger.log("MEDIA", "Playback finished for ${file.name}")
+                        // Mandatory delay to prevent rapid-fire loops
+                        handler.postDelayed({ playNext() }, 1000)
+                    }
                 }
             }
-        } catch (e: Exception) { DebugLogger.log("MEDIA", "Error: ${e.message}") }
+        } catch (e: Exception) { 
+            DebugLogger.log("MEDIA_CRITICAL", "Failed to init MediaPlayer: ${e.message}")
+            stopAllPlayback()
+        }
     }
 
     private fun pauseAudio() {
