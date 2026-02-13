@@ -336,11 +336,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 }
                 
                 // Combine Steps + Answer for a complete reading
-                val speech = if (type == "wo") {
+                var speech = if (type == "wo") {
                     "$typeName number $rawNum. $allSteps In conclusion: $finalAnswer"
                 } else {
                     "$typeName number $rawNum. Answer: $finalAnswer"
                 }
+
+                // SANITIZATION: Remove problematic characters that could break synthesis
+                speech = speech.replace(Regex("[\\x00-\\x1F\\x7F]"), "")
+                               .replace("*", " star ")
+                               .replace("_", " ")
+                               .trim()
+
                 val fileName = "${type}_${batchId}_${number}.wav"
                 val file = File(audioFolder, fileName)
                 val utteranceId = fileName
@@ -457,9 +464,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         DebugLogger.log("MEDIA_TRACE", "Attempting playback of ${file.name} (Size: ${file.length()} bytes)")
 
         // ANTI-LOOP GUARD: If file is missing or empty, do not play.
-        if (!file.exists() || file.length() < 500) {
-            DebugLogger.log("MEDIA_ERR", "ABORT: File ${file.name} is too small or missing. Likely still synthesizing.")
-            speakStatus("Solution file is not ready yet", false)
+        // Increased to 1KB to ensure a valid audio header exists.
+        if (!file.exists() || file.length() < 1024) {
+            DebugLogger.log("MEDIA_ERR", "ABORT: File ${file.name} size is ${file.length()} bytes. (Min 1024 required)")
+            speakStatus("Audio file is still being generated. Please try again in a moment.", true)
             return
         }
 
@@ -838,26 +846,29 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             DebugLogger.log("MEDIA", "Playing specific file: $fileName")
             
             try {
-                mediaPlayer = MediaPlayer().apply {
-                    setDataSource(file.absolutePath)
-                    setAudioAttributes(android.media.AudioAttributes.Builder()
-                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                        .build())
-                    
-                    setOnPreparedListener { 
-                        it.start()
-                        updateMediaSessionState(true)
-                    }
-                    
-                    setOnErrorListener { _, what, extra ->
-                        DebugLogger.log("MEDIA_ERR", "Specific play error: $what")
-                        stopAllPlayback()
-                        true
-                    }
-
-                    prepareAsync() // Never use prepare() on main thread
+                val newPlayer = MediaPlayer()
+                newPlayer.reset() // Critical: Clear native state
+                newPlayer.setDataSource(file.absolutePath)
+                newPlayer.setAudioAttributes(android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                    .build())
+                
+                newPlayer.setOnPreparedListener { 
+                    DebugLogger.log("MEDIA", "Playback starting for ${file.name}")
+                    it.start()
+                    updateMediaSessionState(true)
                 }
+                
+                newPlayer.setOnErrorListener { mp, what, extra ->
+                    DebugLogger.log("MEDIA_ERR", "Hardware Error: $what / Extra: $extra. File might be malformed.")
+                    mp.reset()
+                    stopAllPlayback()
+                    true
+                }
+
+                mediaPlayer = newPlayer
+                mediaPlayer?.prepareAsync()
             } catch (e: Exception) {
                 DebugLogger.log("MEDIA_CRITICAL", "Specific play crash prevented: ${e.message}")
                 stopAllPlayback()
