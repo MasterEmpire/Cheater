@@ -165,6 +165,13 @@ fun AppDashboard() {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("SOLUTION RECAP", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.weight(1f))
+                    IconButton(onClick = {
+                        context.startService(Intent(context, PlaybackService::class.java).apply { action = "RESET" })
+                        refreshFiles()
+                        Toast.makeText(context, "Session Cleared", Toast.LENGTH_SHORT).show()
+                    }) {
+                        Icon(Icons.Default.Delete, "Reset Session", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f), modifier = Modifier.size(20.dp))
+                    }
                     TextButton(onClick = { showLogs = true }) { Text("VIEW TRACE") }
                 }
             }
