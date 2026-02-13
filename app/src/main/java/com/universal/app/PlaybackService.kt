@@ -199,21 +199,26 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun stopAllPlayback() {
-        // Stop TTS
-        if (::tts.isInitialized && isReady) {
-            tts.stop()
-        }
-        // Stop MediaPlayer
-        try {
+        synchronized(this) {
+            DebugLogger.log("MEDIA_LIFECYCLE", "Stopping all playback and releasing resources")
+            // 1. Stop TTS
+            try {
+                if (::tts.isInitialized && isReady) tts.stop()
+            } catch (e: Exception) {}
+
+            // 2. Stop & Release MediaPlayer
             mediaPlayer?.let {
-                if (it.isPlaying) it.stop()
-                it.reset()
-                it.release()
+                try {
+                    if (it.isPlaying) it.stop()
+                    it.reset()
+                    it.release()
+                    DebugLogger.log("MEDIA_LIFECYCLE", "MediaPlayer released successfully")
+                } catch (e: Exception) {
+                    DebugLogger.log("MEDIA_ERR", "Error during release: ${e.message}")
+                }
             }
-        } catch (e: Exception) {
-            DebugLogger.log("CLEANUP", "Error stopping media: ${e.message}")
-        } finally {
             mediaPlayer = null
+            updateMediaSessionState(false)
         }
     }
 
@@ -513,11 +518,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun updateMediaSessionState(isPlaying: Boolean) {
-        val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
-        mediaSession?.setPlaybackState(PlaybackStateCompat.Builder()
-            .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
-            .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
-            .build())
+        try {
+            val session = mediaSession
+            if (session == null || !session.isActive) return
+            
+            val state = if (isPlaying) PlaybackStateCompat.STATE_PLAYING else PlaybackStateCompat.STATE_PAUSED
+            session.setPlaybackState(PlaybackStateCompat.Builder()
+                .setActions(PlaybackStateCompat.ACTION_PLAY_PAUSE or PlaybackStateCompat.ACTION_PLAY or PlaybackStateCompat.ACTION_STOP)
+                .setState(state, PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN, 1.0f)
+                .build())
+        } catch (e: Exception) {
+            DebugLogger.log("SESSION_ERR", "State update failed: ${e.message}")
+        }
     }
 
     private fun resetEverything() {
@@ -815,12 +827,41 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playSpecificFile(fileName: String) {
         val file = File(audioFolder, fileName)
-        if (!file.exists()) return
-        stopAllPlayback()
-        mediaPlayer = MediaPlayer().apply {
-            setDataSource(file.absolutePath)
-            prepare()
-            start()
+        if (!file.exists() || file.length() < 100) {
+            DebugLogger.log("MEDIA_ERR", "Specific file missing or empty: $fileName")
+            speakStatus("File not ready", true)
+            return
+        }
+
+        synchronized(this) {
+            stopAllPlayback()
+            DebugLogger.log("MEDIA", "Playing specific file: $fileName")
+            
+            try {
+                mediaPlayer = MediaPlayer().apply {
+                    setDataSource(file.absolutePath)
+                    setAudioAttributes(android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build())
+                    
+                    setOnPreparedListener { 
+                        it.start()
+                        updateMediaSessionState(true)
+                    }
+                    
+                    setOnErrorListener { _, what, extra ->
+                        DebugLogger.log("MEDIA_ERR", "Specific play error: $what")
+                        stopAllPlayback()
+                        true
+                    }
+
+                    prepareAsync() // Never use prepare() on main thread
+                }
+            } catch (e: Exception) {
+                DebugLogger.log("MEDIA_CRITICAL", "Specific play crash prevented: ${e.message}")
+                stopAllPlayback()
+            }
         }
     }
 
