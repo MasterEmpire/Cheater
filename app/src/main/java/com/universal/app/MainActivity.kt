@@ -66,6 +66,11 @@ fun AppDashboard() {
     val prefs = remember { context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE) }
     
     var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
+    var hasNotificationPermission by remember { mutableStateOf(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
+    ) }
     var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", true)) }
     var audioFiles by remember { mutableStateOf(listOf<File>()) }
     var showLogs by remember { mutableStateOf(false) }
@@ -122,8 +127,13 @@ fun AppDashboard() {
                     PermissionChip("Overlay", Settings.canDrawOverlays(context), Modifier.weight(1f)) { 
                         context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) 
                     }
-                    PermissionChip("Access", isAccessibilityEnabled(context), Modifier.weight(1f)) {
+                                        PermissionChip("Access", isAccessibilityEnabled(context), Modifier.weight(1f)) {
                         context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    }
+                    PermissionChip("Alerts", hasNotificationPermission, Modifier.weight(1f)) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            launcher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+                        }
                     }
                 }
             }
