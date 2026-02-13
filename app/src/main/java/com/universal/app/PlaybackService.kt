@@ -899,6 +899,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         DebugLogger.log("SVC", "PlaybackService Destroying: Cleaning up resources")
+        handler.removeCallbacksAndMessages(null)
+        autoPlayHandler.removeCallbacksAndMessages(null)
         try { unregisterReceiver(screenOffReceiver) } catch(e: Exception) {}
         if (wakeLock?.isHeld == true) wakeLock?.release()
         
