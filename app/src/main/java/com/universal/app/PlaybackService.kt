@@ -370,7 +370,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun triggerReadyVibration() {
         val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-        vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 300, 200, 300), -1))
+        // Discrete Double-Tap at 20% power
+        val effect = VibrationEffect.createWaveform(longArrayOf(0, 40, 100, 40), intArrayOf(0, 50, 0, 50), -1)
+        vibrator.vibrate(effect)
         updateNotification("Ready", "Solutions loaded. Auto-play in 60s.")
         scheduleAutoPlay()
     }
@@ -738,9 +740,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val isScreenOff = !pm.isInteractive
         
         DebugLogger.log("HEADSET_EVENT", "--- HEADSET CLICK DETECTED ---")
-        DebugLogger.log("HEADSET_EVENT", "Interactive (Screen On): ${!isScreenOff}")
         
-        vibrator?.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
+        // Stealth micro-tick (40ms at low power)
+        vibrator?.vibrate(VibrationEffect.createOneShot(40, 60))
         DebugLogger.log("HEADSET_EVENT", "Vibration Triggered Successfully")
 
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
