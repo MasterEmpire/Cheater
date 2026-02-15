@@ -130,8 +130,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     }
                 }
 
-                override fun onError(id: String?) {
-                    DebugLogger.log("TTS", "Error processing $id")
+                override fun onError(id: String?, errorCode: Int) {
+                    val reason = when(errorCode) {
+                        TextToSpeech.ERROR_SYNTHESIS -> "Synthesis failed (Invalid text or engine error)"
+                        TextToSpeech.ERROR_SERVICE -> "TTS Service disconnected"
+                        TextToSpeech.ERROR_OUTPUT -> "Device storage full or write permission denied"
+                        else -> "Unknown Engine Error ($errorCode)"
+                    }
+                    DebugLogger.log("DIAGNOSTIC", "TTS FAILED for $id: $reason")
                     if (id != null && !id.startsWith("STATUS_")) {
                         if (pendingSyntheses.decrementAndGet() == 0) triggerReadyVibration()
                     }
@@ -355,7 +361,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 
                 tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
             }
-        } catch (e: Exception) { DebugLogger.log("CRITICAL", "ProcessJson Error: ${e.message}") }
+        } catch (e: Exception) {
+            DebugLogger.log("DIAGNOSTIC", "JSON PARSE ERROR: ${e.message}")
+            DebugLogger.log("DIAGNOSTIC", "RAW SNIPPET: ${jsonStr.take(100)}...")
+            speakStatus("Data formatting error. Check internal trace.", true)
+        }
     }
 
     private fun triggerReadyVibration() {
@@ -849,19 +859,32 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun playSpecificFile(fileName: String) {
         val file = File(audioFolder, fileName)
-        if (!file.exists() || file.length() < 100) {
-            DebugLogger.log("MEDIA_ERR", "Specific file missing or empty: $fileName")
-            speakStatus("File not ready", true)
+        
+        // --- DIAGNOSTIC PRE-FLIGHT ---
+        if (!file.exists()) {
+            DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName does not exist on disk.")
+            speakStatus("Solution file not found. It may still be generating.", true)
+            return
+        }
+
+        if (file.length() == 0L) {
+            DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName is 0 bytes. TTS Engine failed to write data.")
+            speakStatus("Empty audio file. TTS engine failed.", true)
+            return
+        }
+
+        if (file.length() < 1024) {
+            DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName is too small (${file.length()}b). Header is likely corrupt.")
+            speakStatus("Audio file is corrupted.", true)
             return
         }
 
         synchronized(this) {
             stopAllPlayback()
-            DebugLogger.log("MEDIA", "Playing specific file: $fileName")
+            DebugLogger.log("MEDIA", "Attempting playback: ${file.name}")
             
             try {
                 val newPlayer = MediaPlayer()
-                newPlayer.reset() // Critical: Clear native state
                 newPlayer.setDataSource(file.absolutePath)
                 newPlayer.setAudioAttributes(android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
@@ -869,14 +892,19 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     .build())
                 
                 newPlayer.setOnPreparedListener { 
-                    DebugLogger.log("MEDIA", "Playback starting for ${file.name}")
                     it.start()
                     updateMediaSessionState(true)
                 }
                 
-                newPlayer.setOnErrorListener { mp, what, extra ->
-                    DebugLogger.log("MEDIA_ERR", "Hardware Error: $what / Extra: $extra. File might be malformed.")
-                    mp.reset()
+                newPlayer.setOnErrorListener { _, what, extra ->
+                    val hwReason = when(extra) {
+                        MediaPlayer.MEDIA_ERROR_MALFORMED -> "Malformed bitstream"
+                        MediaPlayer.MEDIA_ERROR_IO -> "File IO Error"
+                        MediaPlayer.MEDIA_ERROR_UNSUPPORTED -> "Unsupported codec"
+                        else -> "Low-level hardware error"
+                    }
+                    DebugLogger.log("DIAGNOSTIC", "HARDWARE FAILURE: Code $what / Reason: $hwReason")
+                    speakStatus("Hardware playback error: $hwReason", true)
                     stopAllPlayback()
                     true
                 }
@@ -884,7 +912,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 mediaPlayer = newPlayer
                 mediaPlayer?.prepareAsync()
             } catch (e: Exception) {
-                DebugLogger.log("MEDIA_CRITICAL", "Specific play crash prevented: ${e.message}")
+                DebugLogger.log("DIAGNOSTIC", "CRITICAL: Exception during MediaPlayer init: ${e.message}")
                 stopAllPlayback()
             }
         }
