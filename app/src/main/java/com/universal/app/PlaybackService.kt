@@ -130,7 +130,16 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     }
                 }
 
+                override fun onError(id: String?) {
+                    // Mandatory abstract method for compiler
+                    DebugLogger.log("DIAGNOSTIC", "TTS FAILED (Legacy) for $id")
+                    if (id != null && !id.startsWith("STATUS_")) {
+                        if (pendingSyntheses.decrementAndGet() == 0) triggerReadyVibration()
+                    }
+                }
+
                 override fun onError(id: String?, errorCode: Int) {
+                    // Modern override for detailed diagnostics
                     val reason = when(errorCode) {
                         TextToSpeech.ERROR_SYNTHESIS -> "Synthesis failed (Invalid text or engine error)"
                         TextToSpeech.ERROR_SERVICE -> "TTS Service disconnected"
