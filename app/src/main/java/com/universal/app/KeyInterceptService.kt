@@ -47,7 +47,18 @@ class KeyInterceptService : AccessibilityService() {
     private var isLensSwitchPending = false
     private var isEarphoneNavMode = false
     private var isLongPressTriggered = false
+    private var successiveRemaining = 0
     
+    private val volDownBatchRunnable = Runnable {
+        isLongPressTriggered = true
+        speak("Initiating batch upload", true)
+        hapticPulse(800)
+        val intent = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply {
+            action = "COMMAND_FLUSH_BATCH"
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+    }
+
     private val volUpLongPressRunnable = Runnable {
         isEarphoneNavMode = !isEarphoneNavMode
         isLongPressTriggered = true
@@ -151,6 +162,10 @@ class KeyInterceptService : AccessibilityService() {
                     return true
                 }
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    if (event.repeatCount == 0) {
+                        isLongPressTriggered = false
+                        handler.postDelayed(volDownBatchRunnable, 5000)
+                    }
                     val now = System.currentTimeMillis()
                     if (now - lastDownTime < CLICK_GAP) downCount++ else downCount = 1
                     lastDownTime = now
@@ -195,6 +210,9 @@ class KeyInterceptService : AccessibilityService() {
                     handlePress("UP", upCount, isLongPress)
                 }
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    handler.removeCallbacks(volDownBatchRunnable)
+                    if (isLongPressTriggered) return true
+                    
                     val duration = event.eventTime - event.downTime
                     if (isWaitingForDownTapHold && duration > 500) {
                         triggerReset()
@@ -441,6 +459,14 @@ class KeyInterceptService : AccessibilityService() {
             return
         }
 
+        // --- Successive Capture Logic ---
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val isSuccessive = prefs.getBoolean("successive_enabled", false)
+        if (isSuccessive && successiveRemaining == 0) {
+            successiveRemaining = prefs.getInt("successive_count", 3) - 1
+            triggerSuccessiveLoop()
+        }
+
         var foundNode: AccessibilityNodeInfo? = null
         if (root != null) {
             val targets = listOf("shutter", "take picture", "capture", "camera_shutter", "bottom_bar_shutter")
@@ -462,14 +488,24 @@ class KeyInterceptService : AccessibilityService() {
 
         if (foundNode != null) {
             DebugLogger.log("AUTO", "Smart Shutter Active")
-            speak("Capturing image")
+            if (successiveRemaining <= 0) speak("Capturing image")
             hapticPulse(100)
             foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
             DebugLogger.log("AUTO", "Shutter Node Missing")
-            speak("Shutter button not visible, using coordinate fallback")
-            logUiHierarchy()
+            if (successiveRemaining <= 0) speak("Shutter not visible, using fallback")
             clickShutterCoordinates()
+        }
+    }
+
+    private fun triggerSuccessiveLoop() {
+        if (successiveRemaining > 0) {
+            handler.postDelayed({ 
+                DebugLogger.log("AUTO", "Successive Capture: $successiveRemaining left")
+                smartShutterClick()
+                successiveRemaining--
+                triggerSuccessiveLoop()
+            }, 1200)
         }
     }
 
@@ -584,6 +620,11 @@ class KeyInterceptService : AccessibilityService() {
             when (sequence) {
                 "S" -> smartShutterClick()
                 "SS" -> toggleCamera()
+                "LL" -> {
+                    speak("Earphone trigger: Initiating batch upload", true)
+                    val intentBatch = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { action = "COMMAND_FLUSH_BATCH" }
+                    startService(intentBatch)
+                }
                 "L" -> speak("System ready. Long press detected.", true)
                 else -> speak("$sequence detected", true)
             }
