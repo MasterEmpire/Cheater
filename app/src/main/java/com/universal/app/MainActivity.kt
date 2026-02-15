@@ -149,6 +149,25 @@ fun AppDashboard() {
                         SettingsToggle("Intercept Media Keys", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
                         SettingsToggle("Headset Shutter", headsetTrigger) { prefs.edit().putBoolean("headset_trigger", it).apply() }
                         SettingsToggle("Camera Touch Blocker", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
+                        
+                        val successiveEnabled = remember { mutableStateOf(prefs.getBoolean("successive_enabled", false)) }
+                        val successiveCount = remember { mutableStateOf(prefs.getInt("successive_count", 3)) }
+                        
+                        SettingsToggle("Successive Capture", successiveEnabled) { prefs.edit().putBoolean("successive_enabled", it).apply() }
+                        if (successiveEnabled.value) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                Text("Amount: ${successiveCount.value}", style = MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                                Slider(
+                                    value = successiveCount.value.toFloat(),
+                                    onValueChange = { 
+                                        successiveCount.value = it.toInt()
+                                        prefs.edit().putInt("successive_count", it.toInt()).apply() 
+                                    },
+                                    valueRange = 2f..10f,
+                                    modifier = Modifier.weight(2f)
+                                )
+                            }
+                        }
                         val headsetOnly = remember { mutableStateOf(prefs.getBoolean("headset_only", true)) }
                         SettingsToggle("Stealth Audio (Headset Only)", headsetOnly) { prefs.edit().putBoolean("headset_only", it).apply() }
                         
