@@ -52,6 +52,10 @@ class ImageMonitorService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         DebugLogger.init(applicationContext)
+        if (intent?.action == "COMMAND_FLUSH_BATCH") {
+            flushQueue()
+            return START_STICKY
+        }
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("System Guardian Active")
@@ -183,19 +187,45 @@ class ImageMonitorService : Service() {
     }
 
     private fun verifyAndUpload(files: List<File>, retryCount: Int) {
-        val readyFiles = files.filter { it.exists() && it.length() > 50000 } // Must be > 50KB to be a real photo
+        val readyFiles = files.filter { it.exists() && it.length() > 50000 }
         
         if (readyFiles.size == files.size) {
-            DebugLogger.log("MONITOR", "All files verified on disk. Dispatching to Uploader.")
-            Uploader.enqueueFiles(this, readyFiles)
+            DebugLogger.log("MONITOR", "Queuing ${readyFiles.size} images for batch.")
+            val queueDir = File(cacheDir, "pending_uploads")
+            if (!queueDir.exists()) queueDir.mkdirs()
+            
+            readyFiles.forEach { file ->
+                val target = File(queueDir, "queue_${System.currentTimeMillis()}_${file.name}")
+                file.copyTo(target, true)
+            }
+            
+            val intent = Intent(this, PlaybackService::class.java).apply {
+                action = "SPEAK_STATUS"
+                putExtra("message", "${readyFiles.size} image queued")
+            }
+            startService(intent)
         } else if (retryCount < 10) {
-            // If files aren't ready (still being written), wait 1.5s and check again
-            DebugLogger.log("MONITOR", "Files not ready yet (size too small). Retry $retryCount/10...")
             Handler(Looper.getMainLooper()).postDelayed({ verifyAndUpload(files, retryCount + 1) }, 1500)
-        } else {
-            DebugLogger.log("MONITOR", "Timeout waiting for file write. Uploading available data.")
-            if (readyFiles.isNotEmpty()) Uploader.enqueueFiles(this, readyFiles)
         }
+    }
+
+    private fun flushQueue() {
+        val queueDir = File(cacheDir, "pending_uploads")
+        val files = queueDir.listFiles()?.toList() ?: emptyList()
+        
+        if (files.isEmpty()) {
+            val intent = Intent(this, PlaybackService::class.java).apply {
+                action = "SPEAK_STATUS"
+                putExtra("message", "Queue is empty. No images to send.")
+            }
+            startService(intent)
+            return
+        }
+
+        DebugLogger.log("BATCH", "Flushing batch of ${files.size} files to cloud.")
+        Uploader.enqueueFiles(this, files)
+        // Clear queue after dispatching to Uploader's internal queue
+        files.forEach { it.delete() }
     }
 
 
