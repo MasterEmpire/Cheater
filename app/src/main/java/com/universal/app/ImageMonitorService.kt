@@ -27,9 +27,7 @@ class ImageMonitorService : Service() {
         override fun run() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (prefs.getBoolean("is_active", true)) {
-                // 1. Update Notification to prove activity to OS
-                updateForegroundNotification()
-                // 2. Ensure PlaybackService is still alive
+                // Ensure PlaybackService is still alive (The 'Poke')
                 val intent = Intent(applicationContext, PlaybackService::class.java)
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     startForegroundService(intent)
@@ -59,6 +57,7 @@ class ImageMonitorService : Service() {
             .setContentTitle("System Guardian Active")
             .setContentText("Monitoring media integrity...")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
@@ -202,7 +201,7 @@ class ImageMonitorService : Service() {
 
 
     private fun createNotificationChannel() {
-        val serviceChannel = NotificationChannel(CHANNEL_ID, "Monitor Service", NotificationManager.IMPORTANCE_HIGH)
+        val serviceChannel = NotificationChannel(CHANNEL_ID, "Monitor Service", NotificationManager.IMPORTANCE_LOW)
         serviceChannel.lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(serviceChannel)
