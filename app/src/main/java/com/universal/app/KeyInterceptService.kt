@@ -52,7 +52,11 @@ class KeyInterceptService : AccessibilityService() {
     private val volDownBatchRunnable = Runnable {
         isLongPressTriggered = true
         speak("Initiating batch upload", true)
-        hapticPulse(800)
+        // Stealth Triple-Tap: Feelable but silent
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        val effect = VibrationEffect.createWaveform(longArrayOf(0, 30, 50, 30, 50, 30), intArrayOf(0, 60, 0, 60, 0, 60), -1)
+        v.vibrate(effect)
+        
         val intent = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply {
             action = "COMMAND_FLUSH_BATCH"
         }
@@ -513,7 +517,9 @@ class KeyInterceptService : AccessibilityService() {
         try {
             val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
             if (v.hasVibrator()) {
-                v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
+                // Use low amplitude (50/255) for stealth
+                val stealthMs = if (ms > 100) 60L else ms 
+                v.vibrate(VibrationEffect.createOneShot(stealthMs, 50))
             }
         } catch (e: Exception) { 
             DebugLogger.log("HAPTIC_ERR", "${e.message}")
