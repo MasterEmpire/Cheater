@@ -704,11 +704,16 @@ class KeyInterceptService : AccessibilityService() {
                 }
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            // If it's not camera, and NOT SystemUI/Android Core, kill the blocker entirely
+            // Stickier Context Check: Only remove blocker if we are SURE we left the camera.
             val isPersistentSystem = pkg == "android" || pkg == "com.android.systemui"
-            if (!isCam && !isPersistentSystem && pkg.isNotEmpty()) {
+            
+            // Verify the ACTUAL root package to avoid being fooled by transient overlays
+            val activeRoot = rootInActiveWindow?.packageName?.toString() ?: ""
+            val rootIsCam = activeRoot.contains("camera") || activeRoot.contains("lens")
+
+            if (!isCam && !isPersistentSystem && pkg.isNotEmpty() && !rootIsCam) {
                 if (lastCameraPackage.isNotEmpty() || blockerOverlay != null) {
-                    DebugLogger.log("AUTO_CAM", "Exited camera context to $pkg. Destroying blocker.")
+                    DebugLogger.log("AUTO_CAM", "Confirmed exit to $pkg. Cleaning up blocker.")
                     lastCameraPackage = ""
                     isLensSwitchPending = false
                     removeTouchBlocker()
