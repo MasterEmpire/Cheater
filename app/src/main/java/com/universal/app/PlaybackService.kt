@@ -423,8 +423,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playNext() {
-        val type = currentType ?: return
-        val list = playlists[type] ?: return
+        val type = currentType
+        val list = playlists[type]
+
+        if (type == null || list.isNullOrEmpty()) {
+            speakStatus("No solutions loaded", true)
+            return
+        }
         
         stopMediaOnly() // Don't kill TTS, just stop the current answer
 
@@ -469,8 +474,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playPrevious() {
-        val type = currentType ?: return
-        val list = playlists[type] ?: return
+        val type = currentType
+        val list = playlists[type]
+
+        if (type == null || list.isNullOrEmpty()) {
+            speakStatus("No solutions loaded", true)
+            return
+        }
 
         stopMediaOnly()
         if (list.size <= 1) {
