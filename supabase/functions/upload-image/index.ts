@@ -138,5 +138,10 @@ async function callGeminiApi(model: string, key: string, prompt: string | null, 
 
   const data = await res.json();
   if (!data.candidates || !data.candidates[0]) throw new Error(data.error?.message || "Empty Gemini response");
-  return data.candidates[0].content.parts[0].text;
+  
+  // Stitch all parts together if the model returns the response in segments
+  const parts = data.candidates[0].content.parts;
+  if (!parts || parts.length === 0) throw new Error("No parts found in Gemini response");
+  
+  return parts.map((p: any) => p.text || "").join('');
 }
