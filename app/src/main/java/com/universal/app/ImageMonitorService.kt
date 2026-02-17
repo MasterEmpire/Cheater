@@ -186,11 +186,27 @@ class ImageMonitorService : Service() {
         }
     }
 
+    private val fileSizes = mutableMapOf<String, Long>()
+
     private fun verifyAndUpload(files: List<File>, retryCount: Int) {
-        val readyFiles = files.filter { it.exists() && it.length() > 50000 }
+        val readyFiles = mutableListOf<File>()
         
-        if (readyFiles.size == files.size) {
-            DebugLogger.log("MONITOR", "Queuing ${readyFiles.size} images for batch.")
+        for (file in files) {
+            if (!file.exists()) continue
+            val currentSize = file.length()
+            val previousSize = fileSizes[file.absolutePath] ?: -1L
+            
+            // File is ready if it's > 50KB AND the size hasn't changed since the last check (finished writing)
+            if (currentSize > 50000 && currentSize == previousSize) {
+                readyFiles.add(file)
+            } else {
+                fileSizes[file.absolutePath] = currentSize
+            }
+        }
+        
+        if (readyFiles.size == files.size && files.isNotEmpty()) {
+            DebugLogger.log("MONITOR", "Stability Check Passed: ${readyFiles.size} images")
+            fileSizes.clear()
             val queueDir = File(cacheDir, "pending_uploads")
             if (!queueDir.exists()) queueDir.mkdirs()
             
@@ -201,11 +217,15 @@ class ImageMonitorService : Service() {
             
             val intent = Intent(this, PlaybackService::class.java).apply {
                 action = "SPEAK_STATUS"
-                putExtra("message", "${readyFiles.size} image queued")
+                putExtra("message", "${readyFiles.size} image ready")
             }
             startService(intent)
-        } else if (retryCount < 10) {
-            Handler(Looper.getMainLooper()).postDelayed({ verifyAndUpload(files, retryCount + 1) }, 1500)
+        } else if (retryCount < 15) {
+            // Use shorter delay for stability checks to feel more responsive
+            Handler(Looper.getMainLooper()).postDelayed({ verifyAndUpload(files, retryCount + 1) }, 800)
+        } else {
+            DebugLogger.log("MONITOR", "Stability Timeout: Some files never finished writing")
+            fileSizes.clear()
         }
     }
 
