@@ -18,10 +18,11 @@ import java.io.File
 import java.util.*
 
 class PlaybackService : Service(), TextToSpeech.OnInitListener {
-    private val screenOffReceiver = object : android.content.BroadcastReceiver() {
+    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
-                 speakStatus("Display deactivated", true)
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> speakStatus("Display deactivated", true)
+                Intent.ACTION_SCREEN_ON -> speakStatus("Display activated", true)
             }
         }
     }
@@ -72,8 +73,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             startForeground(2, notification)
         }
         
-        // 4. Register Screen Off Receiver
-        registerReceiver(screenOffReceiver, android.content.IntentFilter(Intent.ACTION_SCREEN_OFF))
+        // 4. Register Screen State Receiver
+        val screenFilter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+        }
+        registerReceiver(screenStateReceiver, screenFilter)
     }
 
     override fun onInit(status: Int) {
@@ -950,7 +955,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         DebugLogger.log("SVC", "PlaybackService Destroying: Cleaning up resources")
         handler.removeCallbacksAndMessages(null)
         autoPlayHandler.removeCallbacksAndMessages(null)
-        try { unregisterReceiver(screenOffReceiver) } catch(e: Exception) {}
+        try { unregisterReceiver(screenStateReceiver) } catch(e: Exception) {}
         if (wakeLock?.isHeld == true) wakeLock?.release()
         
         // Release Silent Loop
