@@ -636,12 +636,13 @@ class KeyInterceptService : AccessibilityService() {
             when (sequence) {
                 "S" -> smartShutterClick()
                 "SS" -> toggleCamera()
-                "LL" -> {
+                "L" -> {
                     speak("Earphone trigger: Initiating batch upload", true)
-                    val intentBatch = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { action = "COMMAND_FLUSH_BATCH" }
+                    val intentBatch = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { 
+                        action = "COMMAND_FLUSH_BATCH" 
+                    }
                     startService(intentBatch)
                 }
-                "L" -> speak("System ready. Long press detected.", true)
                 else -> speak("$sequence detected", true)
             }
         }
