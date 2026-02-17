@@ -297,12 +297,27 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         performDeepAudit()
     }
 
-    private fun processJson(jsonStr: String) {
+    private fun processJson(rawJson: String) {
         if (!isReady) {
-            Handler(Looper.getMainLooper()).postDelayed({ processJson(jsonStr) }, 1000)
+            Handler(Looper.getMainLooper()).postDelayed({ processJson(rawJson) }, 1000)
             return
         }
         try {
+            // 1. Extract JSON block (handles AI conversational noise or markdown blocks)
+            val firstBrace = rawJson.indexOf("{")
+            val lastBrace = rawJson.lastIndexOf("}")
+            
+            if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
+                DebugLogger.log("JSON_ERR", "No valid JSON structure found in response")
+                speakStatus("Error: Server returned unreadable data.", true)
+                return
+            }
+            
+            val jsonStr = rawJson.substring(firstBrace, lastBrace + 1)
+            if (firstBrace > 0 || lastBrace < rawJson.length - 1) {
+                DebugLogger.log("JSON_RECOVERY", "Extracted JSON block from noisy response")
+            }
+
             val root = JSONObject(jsonStr)
             val solutions = root.optJSONArray("solutions") ?: return
             if (solutions.length() == 0) return
