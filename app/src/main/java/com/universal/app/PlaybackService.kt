@@ -31,6 +31,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var mediaPlayer: MediaPlayer? = null
     private var silentPlayer: MediaPlayer? = null
     private var isFocusHeld = false
+    private var lastFocusLossTime = 0L
     private var vibrator: Vibrator? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
@@ -50,6 +51,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     override fun onCreate() {
         super.onCreate()
         DebugLogger.init(applicationContext)
+        createSilentWavAsset()
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ScreenOffKeys")
         wakeLock?.acquire(3 * 60 * 60 * 1000L)
@@ -651,18 +653,30 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         manager.notify(2, createNotification(title, text))
     }
 
+    private fun createSilentWavAsset() {
+        val file = File(cacheDir, "anchor_silence.wav")
+        if (file.exists()) return
+        try {
+            // 1-second of 44.1kHz 16-bit mono silence (approx 88kb)
+            val header = byteArrayOf(
+                82, 73, 70, 70, 36, 178, 1, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1, 0, 
+                68, -84, 0, 0, -120, 81, 1, 0, 2, 0, 16, 0, 100, 97, 116, 97, 0, 178, 1, 0
+            )
+            file.writeBytes(header + ByteArray(88200))
+            DebugLogger.log("SESSION", "Silent asset generated in cache")
+        } catch (e: Exception) { DebugLogger.log("SESSION", "Asset creation failed") }
+    }
+
     private fun startSilentLoop() {
+        val file = File(cacheDir, "anchor_silence.wav")
+        if (!file.exists()) return
         try {
             if (silentPlayer == null) {
                 silentPlayer = MediaPlayer().apply {
-                    setAudioAttributes(
-                        android.media.AudioAttributes.Builder()
-                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                            .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                            .build()
-                    )
-                    // Reverting to Notification URI to avoid 'Alert' classification by OS
-                    setDataSource(applicationContext, android.provider.Settings.System.DEFAULT_NOTIFICATION_URI)
+                    setDataSource(file.absolutePath)
+                    setAudioAttributes(android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC).build())
                     setVolume(0f, 0f)
                     isLooping = true
                     prepare()
@@ -670,10 +684,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             }
             if (silentPlayer?.isPlaying == false) {
                 silentPlayer?.start()
-                
-                // Explicitly sync session state with the actual playing of the silent anchor
                 updateMediaSessionState(true)
-                DebugLogger.log("SESSION", "Silent Anchor Active")
+                DebugLogger.log("SESSION", "Silent Anchor Active (Data-Backed)")
             }
         } catch (e: Exception) {
             DebugLogger.log("SESSION", "Silent Anchor Error: ${e.message}")
@@ -682,7 +694,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private var isClaiming = false
     private fun claimMediaFocus() {
-        if (isFocusHeld || isClaiming) return
+        val now = System.currentTimeMillis()
+        // Cooldown: Stop the OS focus-war loop (5-second minimum gap)
+        if (isFocusHeld || isClaiming || (now - lastFocusLossTime < 5000)) return
         isClaiming = true
 
         val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
@@ -694,12 +708,18 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                     .build())
                 .setOnAudioFocusChangeListener { focusChange ->
-                    if (focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS || 
-                        focusChange == android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) {
-                        isFocusHeld = false
-                        DebugLogger.log("SESSION", "Focus Surrendered")
-                        // Only retry once after 10 seconds to stop the spam loop
-                        handler.postDelayed({ isClaiming = false; claimMediaFocus() }, 10000)
+                    when (focusChange) {
+                        android.media.AudioManager.AUDIOFOCUS_LOSS,
+                        android.media.AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                            isFocusHeld = false
+                            lastFocusLossTime = System.currentTimeMillis()
+                            DebugLogger.log("SESSION", "Focus Surrendered")
+                            handler.postDelayed({ isClaiming = false }, 5000)
+                        }
+                        android.media.AudioManager.AUDIOFOCUS_GAIN -> {
+                            isFocusHeld = true
+                            DebugLogger.log("SESSION", "Focus Re-Gained")
+                        }
                     }
                 }
                 .build()
@@ -707,12 +727,17 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val result = am.requestAudioFocus(focusRequest)
             if (result == android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
                 isFocusHeld = true
+                isClaiming = false
                 DebugLogger.log("SESSION", "Focus Secured")
                 mediaSession?.isActive = true
                 startSilentLoop()
+            } else {
+                isClaiming = false
+                lastFocusLossTime = System.currentTimeMillis()
             }
+        } else {
+            isClaiming = false
         }
-        isClaiming = false
     }
 
     private fun setupMediaSession() {
