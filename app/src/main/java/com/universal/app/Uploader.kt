@@ -75,8 +75,10 @@ object Uploader {
     }
 
     private fun executeUpload(context: Context, file: File, mimeType: String) {
+        // Using asRequestBody instead of readBytes to stream from disk (prevents OutOfMemory)
+        val fileBody = file.asRequestBody(mimeType.toMediaTypeOrNull())
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, file.readBytes().toRequestBody(mimeType.toMediaTypeOrNull()))
+            .addFormDataPart("file", file.name, fileBody)
             .build()
 
         val request = Request.Builder().url(SUPABASE_URL)
@@ -125,7 +127,9 @@ object Uploader {
             var attempts = 0
             override fun run() {
                 if (!activePolls.contains(id)) return
-                if (attempts > 40) {
+                // Increased to 100 attempts (~7 minutes max) to handle server cold-starts or heavy AI load
+                if (attempts > 100) {
+                    DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
                     activePolls.remove(id)
                     processNext(context)
                     return
