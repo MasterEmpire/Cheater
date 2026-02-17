@@ -656,8 +656,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         try {
             // 1-second of 44.1kHz 16-bit mono silence (approx 88kb)
             val header = byteArrayOf(
-                82, 73, 70, 70, 36, 178, 1, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1, 0, 
-                68, -84, 0, 0, -120, 81, 1, 0, 2, 0, 16, 0, 100, 97, 116, 97, 0, 178, 1, 0
+                82, 73, 70, 70, 36, 178.toByte(), 1, 0, 87, 65, 86, 69, 102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1, 0, 
+                68, (-84).toByte(), 0, 0, (-120).toByte(), 81, 1, 0, 2, 0, 16, 0, 100, 97, 116, 97, 0, 178.toByte(), 1, 0
             )
             file.writeBytes(header + ByteArray(88200))
             DebugLogger.log("SESSION", "Silent asset generated in cache")
