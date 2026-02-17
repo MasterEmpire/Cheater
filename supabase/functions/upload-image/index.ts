@@ -10,35 +10,48 @@ const PRIMARY_MODEL = "gemini-2.5-flash";
 const FALLBACK_MODEL = "gemini-3-flash-preview";
 
 const OCR_PROMPT_TEMPLATE = `
-BATCH OCR & SYNTHESIS TASK:
-You are provided with one or more images from a camera. 
-Some images may be blurry, duplicates, or overlapping parts of the same page.
+BATCH OCR & SPATIAL MAPPING TASK:
+You are provided with multiple images of an exam paper. 
 
 YOUR GOAL:
-Create a single, perfectly ordered transcription of all unique questions found.
-1. Ignore blurry content if a sharper version of the same question exists in another image.
-2. Do NOT duplicate questions.
-3. Identify the question type: mc (multiple choice), tf (true/false), fill (blanks), ma (matching), sa (short answer), wo (workout/math).
+1. STITCHING: Compare all images to create a master list of unique questions. 
+2. ORDERING: Use the physical layout (top-to-bottom, left-to-right) to determine the logical order. If a question is numbered '1' and another '2', 1 MUST come first.
+3. DEDUPLICATION: If Question 5 appears in three photos, only transcribe the clearest version once.
+4. CLARITY: If text is unreadable, use [unreadable] but attempt to infer from context.
 
-OUTPUT FORMAT:
-Return a JSON object with a single array "questions".
-Each question must have: "number", "type", "question_text", and "options" (if applicable).
+CATEGORIES:
+- mc: Multiple Choice
+- tf: True/False
+- fill: Fill in the blanks
+- ma: Matching
+- sa: Short Answer
+- wo: Mathematical Workout / Long Form
+
+OUTPUT JSON:
+{ "questions": [ { "number": "string", "type": "string", "question_text": "string", "options": ["string"] } ] }
 `;
 
 const SOLVER_PROMPT_TEMPLATE = (friendlyText: string) => `
-EXAM SOLVER (TTS MODE).
-You are an expert tutor. Solve the following questions for a student who will listen via audio.
+EXAM SOLVER (PHONETIC TTS MODE).
+You are an expert tutor providing answers for a student to listen to and write down.
 
 INPUT QUESTIONS:
 ${friendlyText}
 
-STRICT OUTPUT RULES:
-1. NATURAL LANGUAGE: Use words, not symbols. Say "plus" instead of "+", "divided by" instead of "/", and "x squared" instead of "x²".
-2. NON-WORKOUT (mc, tf, fill, ma, sa): Provide ONLY the direct answer. Steps MUST be empty [].
-3. WORKOUT (wo): Provide a "steps" array. Format: "Step X: [Action] [write: [text to put on paper]]".
-4. JSON ONLY: Never break the schema.
+STRICT TTS RULES:
+1. PHONETIC MATH: Never use symbols. Translate all math to English words.
+   - Instead of '√x', say 'the square root of x'.
+   - Instead of 'x²', say 'x squared'.
+   - Instead of '1/2', say 'one half'.
+   - Instead of '∫', say 'the integral of'.
+2. STEALTH & SPEED:
+   - For 'mc', 'tf', 'fill', 'ma', 'sa': Provide ONLY the answer. Example: "Answer is B" or "Answer is True". No explanations.
+3. WORKOUT MODE ('wo'):
+   - Provide a 'steps' array where each step is a short instruction the student can follow while writing.
+   - Format: "First, write down the formula...", "Next, substitute three for x...", "The result is five."
+4. NO MARKDOWN: Never use bold, italics, or LaTeX.
 
-SCHEMA: 
+JSON SCHEMA:
 { "solutions": [ { "number": "string", "type": "string", "answer": "string", "steps": ["string"] } ] }
 `;
 
