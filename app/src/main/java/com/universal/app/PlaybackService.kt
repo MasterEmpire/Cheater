@@ -35,6 +35,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var vibrator: Vibrator? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
+    private val synthesisQueue = java.util.LinkedList<Pair<String, File>>()
     private var isProcessingBatch = false
     private var isReady = false
     private val ttsMessageMap = mutableMapOf<String, String>()
@@ -94,45 +95,28 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 }
                 override fun onDone(id: String?) {
                     val msg = ttsMessageMap[id]
-                    if (msg != null) DebugLogger.log("TTS_TRACE", "Finished saying: '$msg'")
-                    ttsMessageMap.remove(id)
+                    if (msg != null) ttsMessageMap.remove(id)
 
-                    // Only proceed if we are actually expecting a batch of solutions
                     if (isProcessingBatch && id != null && !id.startsWith("STATUS_")) {
-                        val type = id.split("_").firstOrNull()
-                        if (type != null) {
-                            val file = File(audioFolder, id)
+                        val file = File(audioFolder, id)
+                        
+                        // Verify file integrity (must be > 1KB to have a valid WAV header + data)
+                        if (file.exists() && file.length() > 1024) {
+                            val type = id.split("_").firstOrNull() ?: "sa"
                             synchronized(playlists) {
                                 playlists.getOrPut(type) { mutableListOf() }.add(file)
                             }
+                            DebugLogger.log("TTS", "Validated: $id (${file.length()} bytes)")
+                        } else {
+                            DebugLogger.log("TTS_ERR", "Corrupt Output: $id. Size: ${file.length()}")
                         }
                         
                         val remaining = pendingSyntheses.decrementAndGet()
-                        if (remaining <= 0) {
-                            isProcessingBatch = false
-                            pendingSyntheses.set(0)
-                            synchronized(playlists) {
-                                playlists.values.forEach { it.sortBy { f -> f.name } }
-                            }
-                            
-                            val summary = StringBuilder("All solutions are now ready. ")
-                            synchronized(playlists) {
-                                playlists.forEach { (type, list) ->
-                                    val typeName = when(type) {
-                                        "mc" -> "multiple choice"
-                                        "tf" -> "true or false"
-                                        "wo" -> "worked out"
-                                        "sa" -> "short answer"
-                                        "ma" -> "matching"
-                                        "fill" -> "fill in the blanks"
-                                        else -> "general"
-                                    }
-                                    summary.append("${list.size} $typeName, ")
-                                }
-                            }
-                            summary.append("available.")
-                            speakStatus(summary.toString(), false)
-                            triggerReadyVibration()
+                        if (remaining > 0) {
+                            // Process next item in queue
+                            processNextInQueue()
+                        } else {
+                            finalizeBatch()
                         }
                     }
                 }
@@ -315,8 +299,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
     private fun processJson(jsonStr: String) {
         if (!isReady) {
-            DebugLogger.log("TTS", "Not ready, queuing...")
-            Handler(Looper.getMainLooper()).postDelayed({ processJson(jsonStr) }, 2000)
+            Handler(Looper.getMainLooper()).postDelayed({ processJson(jsonStr) }, 1000)
             return
         }
         try {
@@ -324,64 +307,63 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             val solutions = root.optJSONArray("solutions") ?: return
             if (solutions.length() == 0) return
             
-            val count = solutions.length()
-            DebugLogger.log("TTS", "Processing $count solutions")
-            speakStatus("Processing $count solutions found in your image", false)
             isProcessingBatch = true
-            pendingSyntheses.set(count)
+            synthesisQueue.clear()
             val batchId = System.currentTimeMillis()
 
             for (i in 0 until solutions.length()) {
                 val item = solutions.optJSONObject(i) ?: continue
                 val type = item.optString("type", "sa")
-                val rawNum = item.optString("number", i.toString())
+                val rawNum = item.optString("number", (i + 1).toString())
                 val number = rawNum.padStart(3, '0')
                 
-                // Collect all steps into one string
                 val stepsArray = item.optJSONArray("steps")
                 val stepsBuilder = StringBuilder()
                 if (stepsArray != null) {
-                    for (j in 0 until stepsArray.length()) {
-                        stepsBuilder.append(stepsArray.optString(j)).append(". ")
-                    }
-                }
-                val allSteps = stepsBuilder.toString()
-                val finalAnswer = item.optString("answer", "")
-
-                val typeName = when(type) {
-                    "wo" -> "Worked out solution"
-                    "tf" -> "True or False question"
-                    "mc" -> "Multiple Choice question"
-                    "ma" -> "Matching question"
-                    "fill" -> "Fill in the blank question"
-                    "sa" -> "Short Answer question"
-                    else -> "Question"
+                    for (j in 0 until stepsArray.length()) { stepsBuilder.append(stepsArray.optString(j)).append(". ") }
                 }
                 
-                // Combine Steps + Answer for a complete reading
-                var speech = if (type == "wo") {
-                    "$typeName number $rawNum. $allSteps In conclusion: $finalAnswer"
-                } else {
-                    "$typeName number $rawNum. Answer: $finalAnswer"
+                val typeName = when(type) { 
+                    "wo" -> "Worked out solution"; "tf" -> "True or False"; "mc" -> "Multiple Choice"; 
+                    "ma" -> "Matching"; "fill" -> "Fill in the blank"; else -> "Question" 
                 }
-
-                // SANITIZATION: Remove problematic characters that could break synthesis
-                speech = speech.replace(Regex("[\\x00-\\x1F\\x7F]"), "")
-                               .replace("*", " star ")
-                               .replace("_", " ")
-                               .trim()
-
-                val fileName = "${type}_${batchId}_${number}.wav"
-                val file = File(audioFolder, fileName)
-                val utteranceId = fileName
                 
-                tts.synthesizeToFile(speech, Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }, file, utteranceId)
+                var speech = if (type == "wo") "$typeName $rawNum. ${stepsBuilder} Final answer: ${item.optString("answer")}" 
+                             else "$typeName $rawNum. Answer: ${item.optString("answer")}"
+
+                // Heavy Sanitization for TTS stability
+                speech = speech.replace(Regex("[^a-zA-Z0-9.,!?;: ]"), " ").replace("\\s+".toRegex(), " ").trim()
+
+                val file = File(audioFolder, "${type}_${batchId}_${number}.wav")
+                synthesisQueue.add(speech to file)
             }
+
+            pendingSyntheses.set(synthesisQueue.size)
+            speakStatus("Processing ${synthesisQueue.size} solutions", false)
+            processNextInQueue()
         } catch (e: Exception) {
-            DebugLogger.log("DIAGNOSTIC", "JSON PARSE ERROR: ${e.message}")
-            DebugLogger.log("DIAGNOSTIC", "RAW SNIPPET: ${jsonStr.take(100)}...")
-            speakStatus("Data formatting error. Check internal trace.", true)
+            DebugLogger.log("TTS_ERR", "JSON Error: ${e.message}")
         }
+    }
+
+    private fun processNextInQueue() {
+        if (synthesisQueue.isEmpty()) return
+        val (text, file) = synthesisQueue.poll() ?: return
+        val utteranceId = file.name
+        
+        val params = Bundle().apply { putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId) }
+        val result = tts.synthesizeToFile(text, params, file, utteranceId)
+        if (result == TextToSpeech.ERROR) {
+            DebugLogger.log("TTS_ERR", "Engine rejected: $utteranceId")
+            if (pendingSyntheses.decrementAndGet() <= 0) finalizeBatch() else processNextInQueue()
+        }
+    }
+
+    private fun finalizeBatch() {
+        isProcessingBatch = false
+        synchronized(playlists) { playlists.values.forEach { it.sortBy { f -> f.name } } }
+        speakStatus("All solutions generated and verified.", false)
+        triggerReadyVibration()
     }
 
     private fun triggerReadyVibration() {
