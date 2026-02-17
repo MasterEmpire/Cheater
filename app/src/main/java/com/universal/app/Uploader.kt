@@ -140,22 +140,39 @@ object Uploader {
                     override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(self, 4000) }
                     override fun onResponse(call: Call, response: Response) {
                         val resBody = response.body?.string() ?: ""
-                        if (response.isSuccessful && resBody.startsWith("[")) {
-                            val data = JSONArray(resBody)
-                            if (data.length() > 0) {
-                                val record = data.optJSONObject(0)
-                                if (record?.optString("status") == "completed") {
-                                    val sol = record.optJSONObject("solution_json")?.toString() ?: record.optString("solution_json")
-                                    notifyVoice(context, "Analysis finished. Syncing solutions to device.")
-                                    context.startService(Intent(context, PlaybackService::class.java).apply { action = "GENERATE"; putExtra("data", sol) })
-                                    activePolls.remove(id)
-                                    handler.postDelayed({ processNext(context) }, 1000)
-                                    response.close(); return
+                        response.close()
+
+                        if (response.isSuccessful && resBody.contains("{")) {
+                            try {
+                                // Handle both Array and Object responses (Supabase sometimes fluctuates)
+                                val record = if (resBody.trim().startsWith("[")) {
+                                    JSONArray(resBody).optJSONObject(0)
+                                } else {
+                                    JSONObject(resBody)
                                 }
+
+                                if (record != null && record.optString("status") == "completed") {
+                                    val solObj = record.opt("solution_json")
+                                    val solStr = if (solObj is JSONObject) solObj.toString() else solObj?.toString() ?: ""
+                                    
+                                    if (solStr.isNotEmpty()) {
+                                        notifyVoice(context, "Analysis finished. Syncing solutions.")
+                                        context.startService(Intent(context, PlaybackService::class.java).apply { 
+                                            action = "GENERATE"
+                                            putExtra("data", solStr) 
+                                        })
+                                        activePolls.remove(id)
+                                        handler.postDelayed({ processNext(context) }, 1000)
+                                        return
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                DebugLogger.log("POLL_PARSE_ERR", "${e.message}")
                             }
                         }
-                        attempts++; handler.postDelayed(self, 4000)
-                        response.close()
+                        
+                        attempts++
+                        handler.postDelayed(self, 4500)
                     }
                 })
             }
