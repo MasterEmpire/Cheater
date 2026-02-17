@@ -98,6 +98,7 @@ class KeyInterceptService : AccessibilityService() {
         val isCamOpen = pkg.contains("camera") || pkg.contains("lens")
 
         if (isCamOpen && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            // --- Emergency Blocker Removal (Priority 1) ---
             if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && action == KeyEvent.ACTION_UP) {
                 val now = System.currentTimeMillis()
                 if (now - lastUpTime < 400 && blockerOverlay != null) {
@@ -106,9 +107,18 @@ class KeyInterceptService : AccessibilityService() {
                     return true // Consume to prevent shutter on emergency exit
                 }
                 lastUpTime = now
+                // Fall through to check for shutter action
             }
-            // Pass through to the system so the Camera App can handle the shutter
-            return false 
+
+            // --- Shutter Trigger (Priority 2) ---
+            if (action == KeyEvent.ACTION_UP) {
+                DebugLogger.log("SHUTTER", "Camera context: Intercepting volume key for capture.")
+                smartShutterClick()
+                return true // Consume the event so the native camera doesn't also fire.
+            }
+
+            // For ACTION_DOWN or other events, pass them through to allow native camera functions like focus.
+            return false
         }
 
         // 2. Headset Hijack Logic (Highest Priority)
