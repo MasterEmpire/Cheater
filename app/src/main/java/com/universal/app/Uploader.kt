@@ -29,6 +29,8 @@ object Uploader {
     private var totalInBatch = 0
     private var currentInBatch = 0
     private var successCount = 0
+    private var activeUploads = 0
+    private const val MAX_CONCURRENT = 3
 
     fun enqueueFiles(context: Context, files: List<File>) {
         if (files.isEmpty()) {
@@ -37,10 +39,13 @@ object Uploader {
         }
         DebugLogger.log("QUEUE", "Adding ${files.size} files to queue")
         uploadQueue.addAll(files)
+        
         if (!isProcessing) {
+            isProcessing = true
             totalInBatch = uploadQueue.size
             currentInBatch = 0
             successCount = 0
+            notifyVoice(context, "Starting batch upload of $totalInBatch images.", 1)
             processNext(context)
         }
     }
@@ -59,28 +64,36 @@ object Uploader {
     }
 
     private fun processNext(context: Context) {
-        val file = uploadQueue.poll()
-        if (file == null) {
-            DebugLogger.log("QUEUE", "Queue empty. Batch Finished.")
+        // Fill concurrency slots
+        while (activeUploads < MAX_CONCURRENT && uploadQueue.isNotEmpty()) {
+            val file = uploadQueue.poll() ?: break
+            
+            currentInBatch++
+            val currentNumber = currentInBatch // Capture local for async feedback
+            activeUploads++
+
+            DebugLogger.log("UPLOAD", "Dispatching $currentNumber/$totalInBatch: ${file.name}")
+            
+            // Milestone Feedback: Every 5 images or the very last one
+            if (currentNumber % 5 == 0 || currentNumber == totalInBatch) {
+                notifyVoice(context, "Image $currentNumber of $totalInBatch dispatched.", 1)
+            }
+
+            val extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(file.absolutePath)
+            val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
+            executeUpload(context, file, mime)
+        }
+
+        if (activeUploads == 0 && uploadQueue.isEmpty()) {
+            DebugLogger.log("QUEUE", "Parallel Batch Finished.")
             isProcessing = false
-            // Only announce success if at least one image actually made it to the server
             if (successCount > 0) {
-                notifyVoice(context, "Batch processing complete. $successCount images sent.")
+                notifyVoice(context, "Upload complete. $successCount of $totalInBatch images are being analyzed.", 1)
             }
             totalInBatch = 0
             currentInBatch = 0
             successCount = 0
-            return
         }
-
-        isProcessing = true
-        currentInBatch++
-        DebugLogger.log("UPLOAD", "Starting upload $currentInBatch/$totalInBatch: ${file.name}")
-        notifyVoice(context, "Processing image $currentInBatch of $totalInBatch", true)
-        
-        val extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(file.absolutePath)
-        val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
-        executeUpload(context, file, mime)
     }
 
     private fun executeUpload(context: Context, file: File, mimeType: String) {
@@ -95,31 +108,32 @@ object Uploader {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                activeUploads--
                 DebugLogger.log("UPLOAD", "Network Failure: ${e.message}")
-                notifyVoice(context, "Network error on image $currentInBatch. Retrying in five seconds.", true)
-                // Attempt one immediate retry for this specific file
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ executeUpload(context, file, mimeType) }, 5000)
+                // Silent retry for parallelism stability
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ 
+                    activeUploads++
+                    executeUpload(context, file, mimeType) 
+                }, 5000)
+                processNext(context)
             }
             override fun onResponse(call: Call, response: Response) {
                 val bodyStr = response.body?.string() ?: ""
                 DebugLogger.log("UPLOAD", "Server Response Code: ${response.code}")
+                activeUploads--
                 if (response.isSuccessful && bodyStr.isNotEmpty()) {
                     val id = JSONObject(bodyStr).optString("id")
                     if (id.isNotEmpty()) {
-                        successCount++ // Valid upload confirmed
-                        DebugLogger.log("POLL", "Got Record ID: $id. Waiting for solver...")
-                        notifyVoice(context, "Image $currentInBatch uploaded. Analyzing.")
+                        successCount++
+                        DebugLogger.log("POLL", "ID Received: $id")
                         startPolling(context, id)
-                    } else {
-                        DebugLogger.log("UPLOAD", "ID missing in response")
-                        processNext(context)
                     }
                 } else {
                     DebugLogger.log("UPLOAD", "Server Error: $bodyStr")
-                    notifyVoice(context, "Server rejected image $currentInBatch")
-                    processNext(context)
                 }
                 response.close()
+                // Immediately trigger next upload to fill the vacated slot
+                android.os.Handler(android.os.Looper.getMainLooper()).post { processNext(context) }
             }
         })
     }
@@ -133,6 +147,7 @@ object Uploader {
         totalInBatch = 0
         currentInBatch = 0
         successCount = 0
+        activeUploads = 0
         DebugLogger.log("RESET", "Uploader queues and active polls purged.")
     }
 
