@@ -51,16 +51,18 @@ class KeyInterceptService : AccessibilityService() {
     
     private val volDownBatchRunnable = Runnable {
         isLongPressTriggered = true
-        speak("Initiating batch upload", true)
-        // Stealth Triple-Tap: Feelable but silent
-        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        val effect = VibrationEffect.createWaveform(longArrayOf(0, 30, 50, 30, 50, 30), intArrayOf(0, 60, 0, 60, 0, 60), -1)
-        v.vibrate(effect)
-        
-        val intent = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply {
-            action = "COMMAND_FLUSH_BATCH"
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("touch_blocker", false)) {
+            prefs.edit().putBoolean("touch_blocker", false).apply()
+            removeTouchBlocker()
+            speak("Emergency unlock: Touch restored", true)
+            hapticPulse(500)
+        } else {
+            // Fallback: If blocker wasn't on, we can still use this for batch upload
+            speak("Initiating batch upload", true)
+            val intent = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { action = "COMMAND_FLUSH_BATCH" }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
         }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
     private val volUpLongPressRunnable = Runnable {
@@ -280,27 +282,25 @@ class KeyInterceptService : AccessibilityService() {
             setOnTouchListener { _, _ -> true }
         }
 
-        // Status Bar height usually ~24-48dp. We use a safe offset to allow shade interactions.
-        val statusBarHeight = (25 * resources.displayMetrics.density).toInt()
-
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR,
+            WindowManager.LayoutParams.FLAG_LAYOUT_INSET_DECOR or
+            WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = android.view.Gravity.TOP
-            y = statusBarHeight
-            height = resources.displayMetrics.heightPixels - statusBarHeight
+            // Full screen coverage including status bar and navigation area
+            height = WindowManager.LayoutParams.MATCH_PARENT
         }
         
         try {
             wm.addView(blockerOverlay, params)
-            DebugLogger.log("BLOCKER", "Touch Blocker Enabled (Safe Offset Apply)")
-            speak("Touch input blocked")
+            DebugLogger.log("BLOCKER", "Global Touch Blocker Active")
+            speak("System locked")
         } catch (e: Exception) { DebugLogger.log("BLOCKER", "Error: ${e.message}") }
     }
 
@@ -690,24 +690,19 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val shouldBlock = prefs.getBoolean("touch_blocker", false)
+
+        // 1. Enforce Global Blocker Policy
+        if (shouldBlock && blockerOverlay == null) {
+            showTouchBlocker()
+        }
+
         val type = event?.eventType
         val pkg = event?.packageName?.toString() ?: ""
         val isCam = pkg.contains("camera") || pkg.contains("lens")
-        val isSystemUI = pkg == "com.android.systemui"
-
-        // 1. Dynamic Blocker Toggle (Notification Shade Awareness)
-        if (blockerOverlay != null) {
-            if (isSystemUI) {
-                blockerOverlay?.visibility = View.GONE
-                DebugLogger.log("BLOCKER", "System UI detected: Hiding overlay")
-            } else if (isCam) {
-                blockerOverlay?.visibility = View.VISIBLE
-                DebugLogger.log("BLOCKER", "Returning to Camera: Showing overlay")
-            }
-        }
 
         if (isCam) {
-            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("is_active", false)) return
 
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
@@ -721,16 +716,11 @@ class KeyInterceptService : AccessibilityService() {
                 }
             }
         } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            // Stickier Context Check: Only remove blocker if we are SURE we left the camera.
-            val isPersistentSystem = pkg == "android" || pkg == "com.android.systemui"
-            
-            // Verify the ACTUAL root package to avoid being fooled by transient overlays
-            val activeRoot = rootInActiveWindow?.packageName?.toString() ?: ""
-            val rootIsCam = activeRoot.contains("camera") || activeRoot.contains("lens")
-
-            if (!isCam && !isPersistentSystem && pkg.isNotEmpty() && !rootIsCam) {
-                if (lastCameraPackage.isNotEmpty() || blockerOverlay != null) {
-                    DebugLogger.log("AUTO_CAM", "Confirmed exit to $pkg. Cleaning up blocker.")
+            // Handle auto-cleanup only if Global Blocker is OFF
+            if (!shouldBlock) {
+                val activeRoot = rootInActiveWindow?.packageName?.toString() ?: ""
+                val rootIsCam = activeRoot.contains("camera") || activeRoot.contains("lens")
+                if (!isCam && pkg.isNotEmpty() && !rootIsCam) {
                     lastCameraPackage = ""
                     isLensSwitchPending = false
                     removeTouchBlocker()
