@@ -599,37 +599,42 @@ class KeyInterceptService : AccessibilityService() {
         val pkg = root?.packageName?.toString() ?: ""
         val isCam = pkg.contains("camera") || pkg.contains("lens")
 
-        // Global Priority: If screen is off, wake up
+        // --- GLOBAL PRIORITY COMMANDS ---
+
+        // 1. Wake (Screen Off + Single Click)
         if (!pm.isInteractive && sequence == "S") {
             wakeDevice(pm)
             return
         }
 
-        // Camera Priority: If camera is open, 'S' is ALWAYS shutter
+        // 2. Global Lock (Triple Click ALWAYS locks screen)
+        if (sequence == "SSS") {
+            DebugLogger.log("HEADSET", "Global Lock Triggered")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+            } else {
+                speak("Lock feature requires Android 9", true)
+            }
+            return
+        }
+
+        // 3. Camera Shutter Priority
         if (isCam && sequence == "S") {
             DebugLogger.log("HEADSET", "Camera detected: Overriding 'S' to Shutter")
             smartShutterClick()
             return
         }
 
+        // --- MODE SPECIFIC COMMANDS ---
+
         if (isEarphoneNavMode) {
-            // Simplified Navigation Mode Logic
             when (sequence) {
                 "S" -> intent.action = "PAUSE"
                 "SS" -> intent.action = "NEXT"
-                "SSS" -> {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                        performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
-                        return
-                    } else {
-                         speak("Lock feature not supported", true)
-                         return
-                    }
-                }
                 "L" -> intent.action = "NEXT_CATEGORY"
                 "LS" -> {
                     toggleCamera()
-                    return // Exit so we don't try to start PlaybackService
+                    return
                 }
                 else -> {
                    if (sequence.contains("L")) intent.action = "NEXT_CATEGORY"
@@ -638,7 +643,6 @@ class KeyInterceptService : AccessibilityService() {
             }
             if (intent.action != null) startService(intent)
         } else {
-            // Standby/System Mode Logic
             when (sequence) {
                 "S" -> smartShutterClick()
                 "SS" -> toggleCamera()
