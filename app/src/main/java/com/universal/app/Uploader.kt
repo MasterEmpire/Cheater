@@ -149,9 +149,9 @@ object Uploader {
             override fun run() {
                 if (!activePolls.contains(id)) return
                 
-                // Heartbeat: Give feedback every 20 seconds of waiting
+                // Heartbeat: Use priority 0 (Low) to ensure we don't interrupt active speech
                 if (attempts > 0 && attempts % 5 == 0) {
-                    notifyVoice(context, "AI still processing. Please wait.")
+                    notifyVoice(context, "AI still processing.", 0)
                 }
 
                 if (attempts > 100) {
@@ -217,11 +217,11 @@ object Uploader {
         handler.post(pollRunnable)
     }
 
-    private fun notifyVoice(context: Context, msg: String, immediate: Boolean = false) {
+    private fun notifyVoice(context: Context, msg: String, priority: Int = 1) {
         context.startService(Intent(context, PlaybackService::class.java).apply {
             action = "SPEAK_STATUS"
             putExtra("message", msg)
-            putExtra("immediate", immediate)
+            putExtra("priority", priority)
         })
     }
 }
