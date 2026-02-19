@@ -618,6 +618,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             DebugLogger.log("RESET", "Pending image queue cleared.")
         }
 
+        // 5. Reset Anchor Point
+        getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE).edit()
+            .putBoolean("first_image_anchored", false)
+            .apply()
+
         updateNotification("System Standby", "Session data cleared.")
         speakStatus("Session cleared", true)
     }
