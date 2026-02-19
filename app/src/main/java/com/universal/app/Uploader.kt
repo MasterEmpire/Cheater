@@ -24,30 +24,23 @@ object Uploader {
     private const val SUPABASE_URL = "https://xvldfsmxskhemkslsbym.supabase.co/functions/v1/upload-image"
     private const val SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2bGRmc214c2toZW1rc2xzYnltIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjI2ODgxNzksImV4cCI6MjA3ODI2NDE3OX0.5arqrx8Tt7v-hpXpo_ncoK4IX8th9IibxAuv93SSoOU"
 
-    private val uploadQueue: Queue<File> = LinkedList()
     private var isProcessing = false
-    private var totalInBatch = 0
-    private var currentInBatch = 0
-    private var successCount = 0
-    private var activeUploads = 0
-    private const val MAX_CONCURRENT = 3
 
     fun enqueueFiles(context: Context, files: List<File>) {
-        if (files.isEmpty()) {
-            DebugLogger.log("QUEUE", "Ignore: Empty file list enqueued.")
+        if (files.isEmpty()) return
+        if (isProcessing) {
+            notifyVoice(context, "System busy. Please wait for current batch to finish.", 1)
             return
         }
-        DebugLogger.log("QUEUE", "Adding ${files.size} files to queue")
-        uploadQueue.addAll(files)
-        
-        if (!isProcessing) {
+
+        Thread {
             isProcessing = true
-            totalInBatch = uploadQueue.size
-            currentInBatch = 0
-            successCount = 0
-            notifyVoice(context, "Starting batch upload of $totalInBatch images.", 1)
-            processNext(context)
-        }
+            val total = files.size
+            DebugLogger.log("BATCH", "Bundling $total images into a single request for AI stitching.")
+            notifyVoice(context, "Bundling $total images for analysis.", 1)
+            
+            executeBatchUpload(context, files)
+        }.start()
     }
 
     fun uploadUri(context: Context, uri: Uri) {
@@ -63,92 +56,55 @@ object Uploader {
         }.start()
     }
 
-    private fun processNext(context: Context) {
-        // Fill concurrency slots
-        while (activeUploads < MAX_CONCURRENT && uploadQueue.isNotEmpty()) {
-            val file = uploadQueue.poll() ?: break
-            
-            currentInBatch++
-            val currentNumber = currentInBatch // Capture local for async feedback
-            activeUploads++
-
-            DebugLogger.log("UPLOAD", "Dispatching $currentNumber/$totalInBatch: ${file.name}")
-            
-            // Milestone Feedback: Every 5 images or the very last one
-            if (currentNumber % 5 == 0 || currentNumber == totalInBatch) {
-                notifyVoice(context, "Image $currentNumber of $totalInBatch dispatched.", 1)
-            }
-
-            val extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(file.absolutePath)
-            val mime = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
-            executeUpload(context, file, mime)
+    private fun executeBatchUpload(context: Context, files: List<File>) {
+        val bodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
+        
+        for (file in files) {
+            val extension = MimeTypeMap.getFileExtensionFromUrl(file.absolutePath)
+            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
+            bodyBuilder.addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaTypeOrNull()))
         }
 
-        if (activeUploads == 0 && uploadQueue.isEmpty()) {
-            DebugLogger.log("QUEUE", "Parallel Batch Finished.")
-            isProcessing = false
-            if (successCount > 0) {
-                notifyVoice(context, "Upload complete. $successCount of $totalInBatch images are being analyzed.", 1)
-            }
-            totalInBatch = 0
-            currentInBatch = 0
-            successCount = 0
-        }
-    }
-
-    private fun executeUpload(context: Context, file: File, mimeType: String) {
-        // Using asRequestBody instead of readBytes to stream from disk (prevents OutOfMemory)
-        val fileBody = file.asRequestBody(mimeType.toMediaTypeOrNull())
-        val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("file", file.name, fileBody)
+        val request = Request.Builder()
+            .url(SUPABASE_URL)
+            .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+            .post(bodyBuilder.build())
             .build()
-
-        val request = Request.Builder().url(SUPABASE_URL)
-            .addHeader("Authorization", "Bearer $SUPABASE_KEY").post(body).build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                activeUploads--
-                DebugLogger.log("UPLOAD", "Network Failure: ${e.message}")
-                // Silent retry for parallelism stability
-                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ 
-                    activeUploads++
-                    executeUpload(context, file, mimeType) 
-                }, 5000)
-                processNext(context)
+                isProcessing = false
+                DebugLogger.log("BATCH_ERR", "Upload failed: ${e.message}")
+                notifyVoice(context, "Batch upload failed. Check connection.", 2)
             }
+
             override fun onResponse(call: Call, response: Response) {
+                isProcessing = false
                 val bodyStr = response.body?.string() ?: ""
-                DebugLogger.log("UPLOAD", "Server Response Code: ${response.code}")
-                activeUploads--
                 if (response.isSuccessful && bodyStr.isNotEmpty()) {
                     val id = JSONObject(bodyStr).optString("id")
                     if (id.isNotEmpty()) {
-                        successCount++
-                        DebugLogger.log("POLL", "ID Received: $id")
+                        DebugLogger.log("POLL", "Batch ID Received: $id. AI is now stitching.")
+                        notifyVoice(context, "Upload successful. AI is stitching images.", 1)
                         startPolling(context, id)
                     }
                 } else {
-                    DebugLogger.log("UPLOAD", "Server Error: $bodyStr")
+                    DebugLogger.log("BATCH_ERR", "Server rejected batch: $bodyStr")
+                    notifyVoice(context, "Server error. Batch rejected.", 2)
                 }
                 response.close()
-                // Immediately trigger next upload to fill the vacated slot
-                android.os.Handler(android.os.Looper.getMainLooper()).post { processNext(context) }
             }
         })
     }
 
+
+
     private val activePolls = mutableSetOf<String>()
 
     fun clearQueue() {
-        uploadQueue.clear()
         activePolls.clear()
         isProcessing = false
-        totalInBatch = 0
-        currentInBatch = 0
-        successCount = 0
-        activeUploads = 0
-        DebugLogger.log("RESET", "Uploader queues and active polls purged.")
+        DebugLogger.log("RESET", "Uploader state reset.")
     }
 
     fun startPolling(context: Context, id: String) {
