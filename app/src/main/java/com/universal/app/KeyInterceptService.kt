@@ -618,7 +618,15 @@ class KeyInterceptService : AccessibilityService() {
             return
         }
 
-        // 3. Camera Shutter Priority
+        // 3. Global Reset (Short-Long ALWAYS clears session)
+        if (sequence == "SL") {
+            DebugLogger.log("HEADSET", "Global Session Reset Triggered")
+            val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET" }
+            startService(resetIntent)
+            return
+        }
+
+        // 4. Camera Shutter Priority
         if (isCam && sequence == "S") {
             DebugLogger.log("HEADSET", "Camera detected: Overriding 'S' to Shutter")
             smartShutterClick()
