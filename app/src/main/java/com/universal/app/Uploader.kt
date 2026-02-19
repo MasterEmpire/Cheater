@@ -88,8 +88,9 @@ object Uploader {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 DebugLogger.log("UPLOAD", "Network Failure: ${e.message}")
-                notifyVoice(context, "Upload failed for image $currentInBatch. Moving to next.")
-                processNext(context)
+                notifyVoice(context, "Network error on image $currentInBatch. Retrying in five seconds.", true)
+                // Attempt one immediate retry for this specific file
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ executeUpload(context, file, mimeType) }, 5000)
             }
             override fun onResponse(call: Call, response: Response) {
                 val bodyStr = response.body?.string() ?: ""
@@ -136,13 +137,22 @@ object Uploader {
             val self = this
             var attempts = 0
             override fun run() {
-                // The 'Kill Switch': If the ID was removed from activePolls by a reset,
-                // the loop terminates here and never calls PlaybackService.
-                if (!activePolls.contains(id)) {
-                    DebugLogger.log("POLL", "Task $id aborted by system reset.")
+                if (!activePolls.contains(id)) return
+                
+                // Heartbeat: Give feedback every 20 seconds of waiting
+                if (attempts > 0 && attempts % 5 == 0) {
+                    notifyVoice(context, "AI still processing. Please wait.")
+                }
+
+                if (attempts > 100) {
+                    DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
+                    notifyVoice(context, "Analysis timed out.")
+                    activePolls.remove(id)
+                    processNext(context)
                     return
                 }
-                // Increased to 100 attempts (~7 minutes max) to handle server cold-starts or heavy AI load
+
+                val request = Request.Builder().url(url).addHeader("apikey", SUPABASE_KEY).addHeader("Authorization", "Bearer $SUPABASE_KEY").build()
                 if (attempts > 100) {
                     DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
                     activePolls.remove(id)
@@ -171,7 +181,9 @@ object Uploader {
                                     val solStr = if (solObj is JSONObject) solObj.toString() else solObj?.toString() ?: ""
                                     
                                     if (solStr.isNotEmpty()) {
-                                        notifyVoice(context, "Analysis finished. Syncing solutions.")
+                                        // Extract count for more informative feedback
+                                        val count = try { JSONObject(solStr).optJSONArray("solutions")?.length() ?: 0 } catch(e: Exception) { 0 }
+                                        notifyVoice(context, "Analysis finished. $count items found. Syncing.")
                                         context.startService(Intent(context, PlaybackService::class.java).apply { 
                                             action = "GENERATE"
                                             putExtra("data", solStr) 
