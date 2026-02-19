@@ -18,11 +18,15 @@ import java.io.File
 import java.util.*
 
 class PlaybackService : Service(), TextToSpeech.OnInitListener {
-    private val screenStateReceiver = object : android.content.BroadcastReceiver() {
+    private val audioSafetyReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> speakStatus("Display deactivated", true)
                 Intent.ACTION_SCREEN_ON -> speakStatus("Display activated", true)
+                android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
+                    DebugLogger.log("STEALTH", "Headset unplugged! Emergency Audio Kill-switch engaged.")
+                    stopAllPlayback()
+                }
             }
         }
     }
@@ -76,12 +80,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             startForeground(2, notification)
         }
         
-        // 4. Register Screen State Receiver
-        val screenFilter = android.content.IntentFilter().apply {
+        // 4. Register Audio Safety & Screen Receiver
+        val safetyFilter = android.content.IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
             addAction(Intent.ACTION_SCREEN_ON)
+            addAction(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY)
         }
-        registerReceiver(screenStateReceiver, screenFilter)
+        registerReceiver(audioSafetyReceiver, safetyFilter)
     }
 
     override fun onInit(status: Int) {
@@ -514,6 +519,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         if (currentIndex < 0 || currentIndex >= list.size) currentIndex = 0
         val file = list[currentIndex]
 
+        // --- STEALTH CHECK ---
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        if (prefs.getBoolean("headset_only", true) && !am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
+            DebugLogger.log("STEALTH", "Playback blocked: Stealth mode active and no headset found.")
+            return
+        }
+
         DebugLogger.log("MEDIA_TRACE", "Attempting playback of ${file.name} (Size: ${file.length()} bytes)")
 
         // ANTI-LOOP GUARD: If file is missing or empty, do not play.
@@ -935,6 +948,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun playSpecificFile(fileName: String) {
         val file = File(audioFolder, fileName)
         
+        // --- STEALTH CHECK ---
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+        if (prefs.getBoolean("headset_only", true) && !am.isWiredHeadsetOn && !am.isBluetoothA2dpOn) {
+            DebugLogger.log("STEALTH", "Specific playback blocked: Stealth mode active.")
+            return
+        }
+
         // --- DIAGNOSTIC PRE-FLIGHT ---
         if (!file.exists()) {
             DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName does not exist on disk.")
@@ -1004,7 +1025,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         DebugLogger.log("SVC", "PlaybackService Destroying: Cleaning up resources")
         handler.removeCallbacksAndMessages(null)
         autoPlayHandler.removeCallbacksAndMessages(null)
-        try { unregisterReceiver(screenStateReceiver) } catch(e: Exception) {}
+        try { unregisterReceiver(audioSafetyReceiver) } catch(e: Exception) {}
         if (wakeLock?.isHeld == true) wakeLock?.release()
         
         // Release Silent Loop
