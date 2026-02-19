@@ -163,14 +163,6 @@ object Uploader {
                 }
 
                 val request = Request.Builder().url(url).addHeader("apikey", SUPABASE_KEY).addHeader("Authorization", "Bearer $SUPABASE_KEY").build()
-                if (attempts > 100) {
-                    DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
-                    activePolls.remove(id)
-                    processNext(context)
-                    return
-                }
-
-                val request = Request.Builder().url(url).addHeader("apikey", SUPABASE_KEY).addHeader("Authorization", "Bearer $SUPABASE_KEY").build()
                 client.newCall(request).enqueue(object : Callback {
                     override fun onFailure(call: Call, e: IOException) { attempts++; handler.postDelayed(self, 4000) }
                     override fun onResponse(call: Call, response: Response) {
