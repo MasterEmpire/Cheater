@@ -520,6 +520,12 @@ class KeyInterceptService : AccessibilityService() {
                 successiveRemaining--
                 triggerSuccessiveLoop()
             }, 1200)
+        } else {
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            val total = prefs.getInt("successive_count", 3)
+            // The first image was the anchor, so total-1 images are data
+            speak("Batch capture complete. ${total - 1} images queued.", true)
+            hapticPulse(200)
         }
     }
 
