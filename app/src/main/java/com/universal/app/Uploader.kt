@@ -129,7 +129,6 @@ object Uploader {
                     DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
                     notifyVoice(context, "Analysis timed out.")
                     activePolls.remove(id)
-                    processNext(context)
                     return
                 }
 
@@ -162,7 +161,6 @@ object Uploader {
                                             putExtra("data", solStr) 
                                         })
                                         activePolls.remove(id)
-                                        handler.postDelayed({ processNext(context) }, 1000)
                                         return
                                     }
                                 }
