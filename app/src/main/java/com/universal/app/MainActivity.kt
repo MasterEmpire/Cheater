@@ -148,7 +148,7 @@ fun AppDashboard() {
 
                         SettingsToggle("Intercept Media Keys", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
                         SettingsToggle("Headset Shutter", headsetTrigger) { prefs.edit().putBoolean("headset_trigger", it).apply() }
-                        SettingsToggle("Camera Touch Blocker", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
+                        SettingsToggle("Global Touch Blocker (Block Everything)", touchBlocker) { prefs.edit().putBoolean("touch_blocker", it).apply() }
                         
                         val successiveEnabled = remember { mutableStateOf(prefs.getBoolean("successive_enabled", false)) }
                         val successiveCount = remember { mutableStateOf(prefs.getInt("successive_count", 3)) }
