@@ -102,6 +102,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     val msg = ttsMessageMap[id]
                     if (msg != null) ttsMessageMap.remove(id)
 
+                    // Resume Media if it was ducked/paused for a status message
+                    if (id?.startsWith("STATUS_") == true && wasMediaPlayingBeforeTts) {
+                        if (!tts.isSpeaking) {
+                            wasMediaPlayingBeforeTts = false
+                            handler.post { mediaPlayer?.start() }
+                        }
+                    }
+
                     if (isProcessingBatch && id != null && !id.startsWith("STATUS_")) {
                         val file = File(audioFolder, id)
                         
@@ -177,7 +185,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "PAUSE" -> pauseAudio()
             "RESET" -> resetEverything()
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
-            "SPEAK_STATUS" -> intent.getStringExtra("message")?.let { speakStatus(it, intent.getBooleanExtra("immediate", false)) }
+            "SPEAK_STATUS" -> {
+                val msg = intent.getStringExtra("message") ?: ""
+                val priority = if (intent.getBooleanExtra("immediate", false)) 2 else intent.getIntExtra("priority", 1)
+                speakStatus(msg, priority)
+            }
             "CLAIM_FOCUS" -> {
                 DebugLogger.log("AUTHORITY", "Manual Media Lock Triggered. Initiating Deep Audit.")
                 performDeepAudit()
@@ -234,34 +246,37 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun speakStatus(message: String, immediate: Boolean) {
+    private var wasMediaPlayingBeforeTts = false
+
+    private fun speakStatus(message: String, priority: Int) {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        val headsetOnly = prefs.getBoolean("headset_only", true)
         val am = getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
         val hasHeadset = am.isWiredHeadsetOn || am.isBluetoothA2dpOn
 
-        DebugLogger.log("TTS_TRACE", "Attempting speak: '$message' (Immediate: $immediate, Stealth: $headsetOnly, Connected: $hasHeadset)")
+        if (prefs.getBoolean("headset_only", true) && !hasHeadset) return
+        if (!isReady) return
 
-        if (headsetOnly && !hasHeadset) {
-            DebugLogger.log("TTS_BLOCK", "Silent Mode Active: No headset detected. Blocking output.")
+        // Priority 0 (Low): Discard if TTS is already speaking to prevent overlap
+        if (priority == 0 && tts.isSpeaking) {
+            DebugLogger.log("TTS_CHATTER", "Discarded low-priority message: $message")
             return
         }
 
-        if (!isReady) {
-            DebugLogger.log("TTS_ERR", "TTS Engine not initialized yet.")
-            return
+        // Coordination: If priority is high (2) or we are playing an answer, pause media
+        if (priority >= 1 && mediaPlayer?.isPlaying == true) {
+            wasMediaPlayingBeforeTts = true
+            mediaPlayer?.pause()
         }
 
-        if (immediate) stopAllPlayback()
-        
-        val id = "STATUS_${System.currentTimeMillis()}"
+        val id = "STATUS_${priority}_${System.currentTimeMillis()}"
         ttsMessageMap[id] = message
-        val queueMode = if (immediate) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
         
-        val result = tts.speak(message, queueMode, null, id)
-        if (result == TextToSpeech.ERROR) {
-            DebugLogger.log("TTS_ERR", "Engine rejected speech request.")
-        }
+        // Priority 2 (Critical): Flush queue. Priority 1 (Normal): Add to queue.
+        val queueMode = if (priority >= 2) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        
+        if (priority >= 2) tts.stop() // Hard interrupt for critical messages
+        
+        tts.speak(message, queueMode, null, id)
     }
 
     private fun performDeepAudit() {
