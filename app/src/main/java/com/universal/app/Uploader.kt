@@ -28,13 +28,19 @@ object Uploader {
     private var isProcessing = false
     private var totalInBatch = 0
     private var currentInBatch = 0
+    private var successCount = 0
 
     fun enqueueFiles(context: Context, files: List<File>) {
+        if (files.isEmpty()) {
+            DebugLogger.log("QUEUE", "Ignore: Empty file list enqueued.")
+            return
+        }
         DebugLogger.log("QUEUE", "Adding ${files.size} files to queue")
         uploadQueue.addAll(files)
         if (!isProcessing) {
             totalInBatch = uploadQueue.size
             currentInBatch = 0
+            successCount = 0
             processNext(context)
         }
     }
@@ -57,11 +63,13 @@ object Uploader {
         if (file == null) {
             DebugLogger.log("QUEUE", "Queue empty. Batch Finished.")
             isProcessing = false
-            if (totalInBatch > 0) {
-                notifyVoice(context, "All images processed successfully")
+            // Only announce success if at least one image actually made it to the server
+            if (successCount > 0) {
+                notifyVoice(context, "Batch processing complete. $successCount images sent.")
             }
             totalInBatch = 0
             currentInBatch = 0
+            successCount = 0
             return
         }
 
@@ -98,8 +106,9 @@ object Uploader {
                 if (response.isSuccessful && bodyStr.isNotEmpty()) {
                     val id = JSONObject(bodyStr).optString("id")
                     if (id.isNotEmpty()) {
+                        successCount++ // Valid upload confirmed
                         DebugLogger.log("POLL", "Got Record ID: $id. Waiting for solver...")
-                        notifyVoice(context, "Image uploaded successfully. Analyzing content...")
+                        notifyVoice(context, "Image $currentInBatch uploaded. Analyzing.")
                         startPolling(context, id)
                     } else {
                         DebugLogger.log("UPLOAD", "ID missing in response")
@@ -123,6 +132,7 @@ object Uploader {
         isProcessing = false
         totalInBatch = 0
         currentInBatch = 0
+        successCount = 0
         DebugLogger.log("RESET", "Uploader queues and active polls purged.")
     }
 
