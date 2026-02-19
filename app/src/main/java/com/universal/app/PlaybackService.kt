@@ -298,6 +298,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun processJson(rawJson: String) {
+        // Last line of defense: check if system is active before processing new data
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("is_active", true)) return
+
         if (!isReady) {
             Handler(Looper.getMainLooper()).postDelayed({ processJson(rawJson) }, 1000)
             return
@@ -590,14 +594,32 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun resetEverything() {
+        // 1. Kill Timers and Media
         autoPlayRunnable?.let { autoPlayHandler.removeCallbacks(it) }
+        handler.removeCallbacksAndMessages(null)
         isProcessingBatch = false
         pendingSyntheses.set(0)
         mediaPlayer?.stop()
         playlists.clear()
-        audioFolder.deleteRecursively()
-        audioFolder.mkdirs()
-        updateNotification("System Standby", "Playback reset.")
+
+        // 2. Wipe Uploader Memory & Stop Polling
+        Uploader.clearQueue()
+
+        // 3. Wipe Audio Disk Cache
+        if (audioFolder.exists()) {
+            audioFolder.listFiles()?.forEach { it.delete() }
+            DebugLogger.log("RESET", "Audio cache cleared.")
+        }
+
+        // 4. Wipe Pending Image Disk Cache (Crucial)
+        val queueDir = File(cacheDir, "pending_uploads")
+        if (queueDir.exists()) {
+            queueDir.listFiles()?.forEach { it.delete() }
+            DebugLogger.log("RESET", "Pending image queue cleared.")
+        }
+
+        updateNotification("System Standby", "Session data cleared.")
+        speakStatus("Session cleared", true)
     }
 
     private fun savePlaybackState() {
