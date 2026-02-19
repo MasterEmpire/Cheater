@@ -148,6 +148,7 @@ class ImageMonitorService : Service() {
         
         contentResolver.query(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, projection, "${MediaStore.Images.Media._ID} > ?", arrayOf(lastId.toString()), sortOrder)?.use { cursor ->
             var currentMaxId = lastId
+            var anchoredInThisBatch = isAnchored
             val filesToProcess = mutableListOf<File>()
 
             while (cursor.moveToNext()) {
@@ -158,18 +159,19 @@ class ImageMonitorService : Service() {
                     currentMaxId = id
                     val file = File(path)
                     
-                    if (!isAnchored) {
-                        // THIS IS THE ANCHOR LOGIC: We found a new image, but we use it only to set the baseline
-                        DebugLogger.log("MONITOR", "Discarding first image (ID: $id) to establish anchor point.")
+                    if (!anchoredInThisBatch) {
+                        // The first image detected in a new session becomes the anchor
+                        DebugLogger.log("MONITOR", "First image (ID: $id) used as anchor point.")
                         prefs.edit().putBoolean("first_image_anchored", true).apply()
-                        // Update lastId so we never see this or anything before it again
                         prefs.edit().putLong("last_image_id", currentMaxId).apply()
+                        anchoredInThisBatch = true
+                        
                         val intent = Intent(this@ImageMonitorService, PlaybackService::class.java).apply {
                             action = "SPEAK_STATUS"
-                            putExtra("message", "System synchronized with camera. Ready for next capture.")
+                            putExtra("message", "Synchronized.")
                         }
                         startService(intent)
-                        return // Stop processing this batch entirely
+                        continue // Skip adding this specific file to the upload queue
                     }
 
                     if (file.exists()) {
@@ -214,12 +216,7 @@ class ImageMonitorService : Service() {
                 val target = File(queueDir, "queue_${System.currentTimeMillis()}_${file.name}")
                 file.copyTo(target, true)
             }
-            
-            val intent = Intent(this, PlaybackService::class.java).apply {
-                action = "SPEAK_STATUS"
-                putExtra("message", "${readyFiles.size} image ready")
-            }
-            startService(intent)
+            // Speech removed: Individual image ready announcements are now silent.
         } else if (retryCount < 15) {
             // Use shorter delay for stability checks to feel more responsive
             Handler(Looper.getMainLooper()).postDelayed({ verifyAndUpload(files, retryCount + 1) }, 800)
