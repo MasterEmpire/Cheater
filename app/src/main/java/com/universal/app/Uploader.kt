@@ -116,6 +116,15 @@ object Uploader {
 
     private val activePolls = mutableSetOf<String>()
 
+    fun clearQueue() {
+        uploadQueue.clear()
+        activePolls.clear()
+        isProcessing = false
+        totalInBatch = 0
+        currentInBatch = 0
+        DebugLogger.log("RESET", "Uploader queues and active polls purged.")
+    }
+
     fun startPolling(context: Context, id: String) {
         if (activePolls.contains(id)) return
         activePolls.add(id)
@@ -127,7 +136,12 @@ object Uploader {
             val self = this
             var attempts = 0
             override fun run() {
-                if (!activePolls.contains(id)) return
+                // The 'Kill Switch': If the ID was removed from activePolls by a reset,
+                // the loop terminates here and never calls PlaybackService.
+                if (!activePolls.contains(id)) {
+                    DebugLogger.log("POLL", "Task $id aborted by system reset.")
+                    return
+                }
                 // Increased to 100 attempts (~7 minutes max) to handle server cold-starts or heavy AI load
                 if (attempts > 100) {
                     DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
