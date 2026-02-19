@@ -219,11 +219,16 @@ fun AppDashboard() {
             }
             
             item { 
-                val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { Uploader.uploadUri(context, it) } }
+                // Switch to GetContent to allow browsing full File Manager / Documents / Gallery
+                val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { Uploader.uploadUri(context, it) } }
                 OutlinedButton(
-                    onClick = { pickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                    onClick = { pickerLauncher.launch("image/*") },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
-                ) { Text("MANUAL UPLOAD TEST") }
+                ) { 
+                    Icon(Icons.Default.Add, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("BROWSE & UPLOAD IMAGE") 
+                }
             }
         }
     }
