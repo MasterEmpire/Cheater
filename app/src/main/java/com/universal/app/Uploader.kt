@@ -27,8 +27,12 @@ object Uploader {
     private var isProcessing = false
 
     fun enqueueFiles(context: Context, files: List<File>) {
-        if (files.isEmpty()) return
+        if (files.isEmpty()) {
+            DebugLogger.log("UPLOADER", "Abort: Enqueue called with empty list.")
+            return
+        }
         if (isProcessing) {
+            DebugLogger.log("UPLOADER", "Abort: Process already in progress. Ignoring request.")
             notifyVoice(context, "System busy. Please wait for current batch to finish.", 1)
             return
         }
@@ -36,9 +40,11 @@ object Uploader {
         Thread {
             isProcessing = true
             val total = files.size
-            DebugLogger.log("BATCH", "Bundling $total images into a single request for AI stitching.")
-            notifyVoice(context, "Bundling $total images for analysis.", 1)
+            DebugLogger.log("UPLOADER", "--- NEW BATCH STARTED ---")
+            DebugLogger.log("UPLOADER", "Files detected: $total")
+            files.forEach { DebugLogger.log("UPLOADER", "Pending: ${it.name} (${it.length() / 1024} KB)") }
             
+            notifyVoice(context, "Bundling $total images for analysis.", 1)
             executeBatchUpload(context, files)
         }.start()
     }
@@ -63,38 +69,49 @@ object Uploader {
         val uploadedPaths = java.util.Collections.synchronizedList(mutableListOf<String>())
         val finishedCount = java.util.concurrent.atomic.AtomicInteger(0)
 
+        DebugLogger.log("UPLOADER", "Assigned Batch ID: $batchId")
+
         files.forEach { file ->
             val pathInBucket = "$batchId/${file.name}"
+            val targetUrl = "https://xvldfsmxskhemkslsbym.supabase.co/storage/v1/object/images/$pathInBucket"
+            
+            DebugLogger.log("NETWORK", "Starting PUT: $pathInBucket")
+            
             val request = Request.Builder()
-                .url("https://xvldfsmxskhemkslsbym.supabase.co/storage/v1/object/images/$pathInBucket")
+                .url(targetUrl)
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .put(file.asRequestBody("image/jpeg".toMediaTypeOrNull()))
                 .build()
 
             client.newCall(request).enqueue(object : Callback {
                 override fun onFailure(call: Call, e: IOException) {
-                    DebugLogger.log("UPLOAD_ERR", "File ${file.name} failed: ${e.message}")
+                    DebugLogger.log("NETWORK_ERR", "Connection failed for ${file.name}: ${e.message}")
                     checkAllFinished()
                 }
 
                 override fun onResponse(call: Call, response: Response) {
+                    val code = response.code
                     if (response.isSuccessful) {
                         uploadedPaths.add(pathInBucket)
-                        DebugLogger.log("UPLOAD", "Staged: ${file.name}")
+                        DebugLogger.log("STORAGE", "SUCCESS: ${file.name} (Code: $code)")
                     } else {
-                        DebugLogger.log("UPLOAD_ERR", "Server rejected ${file.name}: ${response.code}")
+                        val errorBody = response.body?.string() ?: "No details"
+                        DebugLogger.log("STORAGE_ERR", "REJECTED: ${file.name} (Code: $code) - $errorBody")
                     }
                     response.close()
                     checkAllFinished()
                 }
 
                 private fun checkAllFinished() {
-                    if (finishedCount.incrementAndGet() == files.size) {
+                    val current = finishedCount.incrementAndGet()
+                    DebugLogger.log("UPLOADER", "Progress: $current/${files.size} requests finished.")
+                    
+                    if (current == files.size) {
                         if (uploadedPaths.isNotEmpty()) {
-                            DebugLogger.log("BATCH", "Batch ready. Triggering AI analysis for ${uploadedPaths.size} images.")
+                            DebugLogger.log("UPLOADER", "Batch staging complete. Successful: ${uploadedPaths.size}/${files.size}")
                             triggerFunction(context, uploadedPaths.toList())
                         } else {
-                            DebugLogger.log("BATCH_ERR", "All uploads in batch failed.")
+                            DebugLogger.log("UPLOADER", "FATAL: Zero images were successfully staged. AI trigger aborted.")
                             notifyVoice(context, "Critical failure: Cloud storage rejected all images.", 2)
                             isProcessing = false
                         }
@@ -105,6 +122,8 @@ object Uploader {
     }
 
     private fun triggerFunction(context: Context, paths: List<String>) {
+        DebugLogger.log("CLOUD", "Connecting to Edge Function: $SUPABASE_URL")
+        
         val json = JSONObject().apply {
             put("action", "process_staged_images")
             put("paths", JSONArray(paths))
@@ -119,18 +138,27 @@ object Uploader {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 isProcessing = false
+                DebugLogger.log("CLOUD_ERR", "Handshake FAILED: ${e.message}")
                 notifyVoice(context, "Failed to trigger analysis", 2)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 isProcessing = false
+                val code = response.code
                 val bodyStr = response.body?.string() ?: ""
+                
                 if (response.isSuccessful) {
                     val id = JSONObject(bodyStr).optString("id")
+                    DebugLogger.log("CLOUD", "Handshake SUCCESS. Assigned Process ID: $id")
+                    
                     context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                         .edit().putString("active_cloud_process_id", id).apply()
+                    
                     notifyVoice(context, "Staging complete. AI analyzing.", 1)
                     startPolling(context, id)
+                } else {
+                    DebugLogger.log("CLOUD_ERR", "Edge Function Error (Code: $code): $bodyStr")
+                    notifyVoice(context, "Cloud analysis error. Check trace.", 2)
                 }
                 response.close()
             }
