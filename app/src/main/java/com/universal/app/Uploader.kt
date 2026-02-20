@@ -107,6 +107,9 @@ object Uploader {
                     DebugLogger.log("UPLOADER", "Progress: $current/${files.size} requests finished.")
                     
                     if (current == files.size) {
+                        // Cleanup: Files are no longer needed on disk after upload attempts
+                        files.forEach { it.delete() }
+
                         if (uploadedPaths.isNotEmpty()) {
                             DebugLogger.log("UPLOADER", "Batch staging complete. Successful: ${uploadedPaths.size}/${files.size}")
                             triggerFunction(context, uploadedPaths.toList())
