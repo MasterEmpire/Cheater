@@ -459,26 +459,19 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             return
         }
         
-        stopMediaOnly() // Don't kill TTS, just stop the current answer
-
-        if (list.size <= 1) {
-            speakStatus("Only one solution in this category", 2)
-            // Re-trigger play so it doesn't just stay silent
-            handler.postDelayed({ playCurrent() }, 1500)
-            return
-        }
+        stopMediaOnly()
 
         if (currentIndex >= list.size - 1) {
-            currentIndex = 0
-            speakStatus("Returning to first solution", 2)
+            // End of category reached: Advance to next category automatically
+            DebugLogger.log("NAV", "End of $type reached. Advancing to next category.")
+            playNextCategory()
         } else {
             currentIndex++
             speakStatus("Next solution", 2)
+            DebugLogger.log("NAV", "Next: Index $currentIndex of ${list.size}")
+            savePlaybackState()
+            handler.postDelayed({ playCurrent() }, 1500)
         }
-
-        DebugLogger.log("NAV", "Next: Index $currentIndex of ${list.size}")
-        savePlaybackState()
-        handler.postDelayed({ playCurrent() }, 1500)
     }
 
     private fun playNextCategory() {
