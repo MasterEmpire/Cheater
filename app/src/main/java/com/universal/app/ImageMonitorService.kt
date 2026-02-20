@@ -241,8 +241,6 @@ class ImageMonitorService : Service() {
 
         DebugLogger.log("BATCH", "Flushing batch of ${files.size} files to cloud.")
         Uploader.enqueueFiles(this, files)
-        // Clear queue after dispatching to Uploader's internal queue
-        files.forEach { it.delete() }
     }
 
 
