@@ -21,8 +21,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private val audioSafetyReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> speakStatus("Display deactivated", true)
-                Intent.ACTION_SCREEN_ON -> speakStatus("Display activated", true)
+                Intent.ACTION_SCREEN_OFF -> speakStatus("Display deactivated", 2)
+                Intent.ACTION_SCREEN_ON -> speakStatus("Display activated", 2)
                 android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
                     DebugLogger.log("STEALTH", "Headset unplugged! Emergency Audio Kill-switch engaged.")
                     stopAllPlayback()
@@ -203,7 +203,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun handleAutoStartNav() {
         rebuildPlaylistsAndResume()
         if (playlists.isEmpty()) {
-            speakStatus("Navigation active, but no solutions found yet.", false)
+            speakStatus("Navigation active, but no solutions found yet.", 1)
         } else {
             val type = currentType ?: playlists.keys.firstOrNull()
             if (type != null) {
@@ -215,7 +215,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     "fill" -> "fill in the blanks"
                     else -> "short answers"
                 }
-                speakStatus("Starting playback of $readable", false)
+                speakStatus("Starting playback of $readable", 1)
                 playType(type)
             }
         }
@@ -333,7 +333,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             
             if (firstBrace == -1 || lastBrace == -1 || lastBrace < firstBrace) {
                 DebugLogger.log("JSON_ERR", "No valid JSON structure found in response")
-                speakStatus("Error: Server returned unreadable data.", true)
+                speakStatus("Error: Server returned unreadable data.", 2)
                 return
             }
             
@@ -378,7 +378,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             }
 
             pendingSyntheses.set(synthesisQueue.size)
-            speakStatus("Processing ${synthesisQueue.size} solutions", false)
+            speakStatus("Processing ${synthesisQueue.size} solutions", 1)
             processNextInQueue()
         } catch (e: Exception) {
             DebugLogger.log("TTS_ERR", "JSON Error: ${e.message}")
@@ -401,7 +401,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun finalizeBatch() {
         isProcessingBatch = false
         synchronized(playlists) { playlists.values.forEach { it.sortBy { f -> f.name } } }
-        speakStatus("All solutions generated and verified.", false)
+        speakStatus("All solutions generated and verified.", 1)
         triggerReadyVibration()
     }
 
@@ -438,11 +438,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
 
         if (list.isNullOrEmpty()) {
-            speakStatus("$readableType not available", true)
+            speakStatus("$readableType not available", 2)
             return
         }
 
-        speakStatus("Playing $readableType", true)
+        speakStatus("Playing $readableType", 2)
         currentType = type
         currentIndex = 0
         savePlaybackState()
@@ -455,14 +455,14 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val list = playlists[type]
 
         if (type == null || list.isNullOrEmpty()) {
-            speakStatus("No solutions loaded", true)
+            speakStatus("No solutions loaded", 2)
             return
         }
         
         stopMediaOnly() // Don't kill TTS, just stop the current answer
 
         if (list.size <= 1) {
-            speakStatus("Only one solution in this category", true)
+            speakStatus("Only one solution in this category", 2)
             // Re-trigger play so it doesn't just stay silent
             handler.postDelayed({ playCurrent() }, 1500)
             return
@@ -470,10 +470,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
 
         if (currentIndex >= list.size - 1) {
             currentIndex = 0
-            speakStatus("Returning to first solution", true)
+            speakStatus("Returning to first solution", 2)
         } else {
             currentIndex++
-            speakStatus("Next solution", true)
+            speakStatus("Next solution", 2)
         }
 
         DebugLogger.log("NAV", "Next: Index $currentIndex of ${list.size}")
@@ -486,12 +486,12 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         stopMediaOnly()
 
         if (types.isEmpty()) {
-            speakStatus("No data loaded", true)
+            speakStatus("No data loaded", 2)
             return
         }
         
         if (types.size <= 1) {
-            speakStatus("No other categories found", true)
+            speakStatus("No other categories found", 2)
             handler.postDelayed({ playCurrent() }, 1500)
             return
         }
@@ -506,23 +506,23 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val list = playlists[type]
 
         if (type == null || list.isNullOrEmpty()) {
-            speakStatus("No solutions loaded", true)
+            speakStatus("No solutions loaded", 2)
             return
         }
 
         stopMediaOnly()
         if (list.size <= 1) {
-            speakStatus("Only one solution available", true)
+            speakStatus("Only one solution available", 2)
             handler.postDelayed({ playCurrent() }, 1500)
             return
         }
 
         if (currentIndex <= 0) {
             currentIndex = list.size - 1
-            speakStatus("Moving to end of list", true)
+            speakStatus("Moving to end of list", 2)
         } else {
             currentIndex--
-            speakStatus("Previous solution", true)
+            speakStatus("Previous solution", 2)
         }
 
         savePlaybackState()
@@ -548,7 +548,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         // Increased to 1KB to ensure a valid audio header exists.
         if (!file.exists() || file.length() < 1024) {
             DebugLogger.log("MEDIA_ERR", "ABORT: File ${file.name} size is ${file.length()} bytes. (Min 1024 required)")
-            speakStatus("Audio file is still being generated. Please try again in a moment.", true)
+            speakStatus("Audio file is still being generated. Please try again in a moment.", 2)
             return
         }
 
@@ -586,16 +586,16 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private fun pauseAudio() {
         val list = playlists[currentType]
         if (list.isNullOrEmpty()) {
-            speakStatus("No solutions loaded to play.", true)
+            speakStatus("No solutions loaded to play.", 2)
             return
         }
         
         if (mediaPlayer?.isPlaying == true) {
             mediaPlayer?.pause()
-            speakStatus("Paused", true)
+            speakStatus("Paused", 2)
             updateMediaSessionState(false)
         } else {
-            speakStatus("Resumed", true)
+            speakStatus("Resumed", 2)
             if (mediaPlayer == null) {
                 // Reconstruction: The player was released or never started
                 playCurrent()
@@ -652,7 +652,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             .apply()
 
         updateNotification("System Standby", "Session data cleared.")
-        speakStatus("Session cleared", true)
+        updateNotification("Session data cleared.")
+        speakStatus("Session cleared", 2)
     }
 
     private fun savePlaybackState() {
@@ -950,10 +951,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 if (wakeRetryCount < 2) {
                     wakeRetryCount++
                     DebugLogger.log("WAKE_RECOVER", "Retrying wake sequence...")
-                    speakStatus("Retry wake", true)
+                    speakStatus("Retry wake", 2)
                     wakeDevice(pm)
                 } else {
-                    speakStatus("Wake failed. Check battery optimization.", true)
+                    speakStatus("Wake failed. Check battery optimization.", 2)
                     wakeRetryCount = 0
                 }
             }
@@ -974,19 +975,19 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         // --- DIAGNOSTIC PRE-FLIGHT ---
         if (!file.exists()) {
             DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName does not exist on disk.")
-            speakStatus("Solution file not found. It may still be generating.", true)
+            speakStatus("Solution file not found. It may still be generating.", 2)
             return
         }
 
         if (file.length() == 0L) {
             DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName is 0 bytes. TTS Engine failed to write data.")
-            speakStatus("Empty audio file. TTS engine failed.", true)
+            speakStatus("Empty audio file. TTS engine failed.", 2)
             return
         }
 
         if (file.length() < 1024) {
             DebugLogger.log("DIAGNOSTIC", "FAILURE: File $fileName is too small (${file.length()}b). Header is likely corrupt.")
-            speakStatus("Audio file is corrupted.", true)
+            speakStatus("Audio file is corrupted.", 2)
             return
         }
 
@@ -1015,7 +1016,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                         else -> "Low-level hardware error"
                     }
                     DebugLogger.log("DIAGNOSTIC", "HARDWARE FAILURE: Code $what / Reason: $hwReason")
-                    speakStatus("Hardware playback error: $hwReason", true)
+                    speakStatus("Hardware playback error: $hwReason", 2)
                     stopAllPlayback()
                     true
                 }
