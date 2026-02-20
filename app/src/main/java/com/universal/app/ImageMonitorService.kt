@@ -92,10 +92,10 @@ class ImageMonitorService : Service() {
 
     private fun recoveryScan() {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        val lastId = prefs.getLong("last_image_id", -1)
-        if (lastId != -1L) {
-            DebugLogger.log("RECOVERY", "Checking status of image ID: $lastId")
-            Uploader.startPolling(this, lastId.toString())
+        val cloudProcessId = prefs.getString("active_cloud_process_id", null)
+        if (cloudProcessId != null) {
+            DebugLogger.log("RECOVERY", "Resuming poll for Cloud Process: $cloudProcessId")
+            Uploader.startPolling(this, cloudProcessId)
         }
     }
 
