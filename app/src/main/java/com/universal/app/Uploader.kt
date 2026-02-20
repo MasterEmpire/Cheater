@@ -60,46 +60,44 @@ object Uploader {
 
     private fun executeBatchUpload(context: Context, files: List<File>) {
         val batchId = "batch_${System.currentTimeMillis()}"
-        val storageBaseUrl = "https://xvldfsmxskhemkslsbym.supabase.co/storage/v1/object/images/$batchId"
-        val uploadedPaths = mutableListOf<String>()
-        var successCount = 0
+        val uploadedPaths = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val finishedCount = java.util.concurrent.atomic.AtomicInteger(0)
 
         files.forEach { file ->
+            val pathInBucket = "$batchId/${file.name}"
             val request = Request.Builder()
-                .url("$storageBaseUrl/${file.name}")
+                .url("https://xvldfsmxskhemkslsbym.supabase.co/storage/v1/object/images/$pathInBucket")
                 .addHeader("Authorization", "Bearer $SUPABASE_KEY")
                 .put(file.asRequestBody("image/jpeg".toMediaTypeOrNull()))
                 .build()
 
             client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) { checkCompletion() }
-                override fun onResponse(call: Call, response: Response) {
-                    if (response.isSuccessful) {
-                        synchronized(uploadedPaths) {
-                            uploadedPaths.add("$batchId/${file.name}")
-                            successCount++
-                        }
-                    }
-                    response.close()
-                    checkCompletion()
+                override fun onFailure(call: Call, e: IOException) {
+                    DebugLogger.log("UPLOAD_ERR", "File ${file.name} failed: ${e.message}")
+                    checkAllFinished()
                 }
 
-                private fun checkCompletion() {
-                    val finishedCount:
-                    Int
-                    val currentPaths = mutableListOf<String>()
-                    
-                    synchronized(uploadedPaths) {
-                        // We use the size of the paths list + a separate failure counter if needed,
-                        // but here we'll track total attempts by using an atomic-like check
-                        currentPaths.addAll(uploadedPaths)
+                override fun onResponse(call: Call, response: Response) {
+                    if (response.isSuccessful) {
+                        uploadedPaths.add(pathInBucket)
+                        DebugLogger.log("UPLOAD", "Staged: ${file.name}")
+                    } else {
+                        DebugLogger.log("UPLOAD_ERR", "Server rejected ${file.name}: ${response.code}")
                     }
-                    
-                    // Use a temporary counter in a shared scope to track TOTAL finished (success + fail)
-                    // For this payload, we'll use a simple count check against the original list
-                    if (currentPaths.size == files.size) {
-                        DebugLogger.log("UPLOAD", "All ${files.size} images staged. Triggering AI.")
-                        triggerFunction(context, currentPaths)
+                    response.close()
+                    checkAllFinished()
+                }
+
+                private fun checkAllFinished() {
+                    if (finishedCount.incrementAndGet() == files.size) {
+                        if (uploadedPaths.isNotEmpty()) {
+                            DebugLogger.log("BATCH", "Batch ready. Triggering AI analysis for ${uploadedPaths.size} images.")
+                            triggerFunction(context, uploadedPaths.toList())
+                        } else {
+                            DebugLogger.log("BATCH_ERR", "All uploads in batch failed.")
+                            notifyVoice(context, "Critical failure: Cloud storage rejected all images.", 2)
+                            isProcessing = false
+                        }
                     }
                 }
             })
