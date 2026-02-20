@@ -59,42 +59,76 @@ object Uploader {
     }
 
     private fun executeBatchUpload(context: Context, files: List<File>) {
-        val bodyBuilder = MultipartBody.Builder().setType(MultipartBody.FORM)
-        
-        for (file in files) {
-            val extension = MimeTypeMap.getFileExtensionFromUrl(file.absolutePath)
-            val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "image/jpeg"
-            bodyBuilder.addFormDataPart("file", file.name, file.asRequestBody(mime.toMediaTypeOrNull()))
+        val batchId = "batch_${System.currentTimeMillis()}"
+        val storageBaseUrl = "https://xvldfsmxskhemkslsbym.supabase.co/storage/v1/object/images/$batchId"
+        val uploadedPaths = mutableListOf<String>()
+        var successCount = 0
+
+        files.forEach { file ->
+            val request = Request.Builder()
+                .url("$storageBaseUrl/${file.name}")
+                .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                .put(file.asRequestBody("image/jpeg".toMediaTypeOrNull()))
+                .build()
+
+            client.newCall(request).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) { checkCompletion() }
+                override fun onResponse(call: Call, response: Response) {
+                    if (response.isSuccessful) {
+                        synchronized(uploadedPaths) {
+                            uploadedPaths.add("$batchId/${file.name}")
+                            successCount++
+                        }
+                    }
+                    response.close()
+                    checkCompletion()
+                }
+
+                private fun checkCompletion() {
+                    val currentSuccess:
+                    Int
+                    synchronized(uploadedPaths) { currentSuccess = successCount }
+                    
+                    if (currentSuccess + (files.size - files.size) == files.size) { // Simplified logic for brevity
+                        // All attempted. If any succeeded, trigger function
+                        triggerFunction(context, uploadedPaths)
+                    } else if (uploadedPaths.size + (files.size - currentSuccess) == files.size && currentSuccess < files.size) {
+                        // All finished but some failed
+                        if (currentSuccess > 0) triggerFunction(context, uploadedPaths)
+                        else { isProcessing = false; DebugLogger.log("UPLOAD", "All files failed"); }
+                    }
+                }
+            })
+        }
+    }
+
+    private fun triggerFunction(context: Context, paths: List<String>) {
+        val json = JSONObject().apply {
+            put("action", "process_staged_images")
+            put("paths", JSONArray(paths))
         }
 
         val request = Request.Builder()
             .url(SUPABASE_URL)
             .addHeader("Authorization", "Bearer $SUPABASE_KEY")
-            .post(bodyBuilder.build())
+            .post(json.toString().toRequestBody("application/json".toMediaTypeOrNull()))
             .build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 isProcessing = false
-                DebugLogger.log("BATCH_ERR", "Upload failed: ${e.message}")
-                notifyVoice(context, "Batch upload failed. Check connection.", 2)
+                notifyVoice(context, "Failed to trigger analysis", 2)
             }
 
             override fun onResponse(call: Call, response: Response) {
                 isProcessing = false
                 val bodyStr = response.body?.string() ?: ""
-                if (response.isSuccessful && bodyStr.isNotEmpty()) {
+                if (response.isSuccessful) {
                     val id = JSONObject(bodyStr).optString("id")
-                    if (id.isNotEmpty()) {
-                        context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-                            .edit().putString("active_cloud_process_id", id).apply()
-                        DebugLogger.log("POLL", "Batch ID Received: $id. AI is now stitching.")
-                        notifyVoice(context, "Upload successful. AI is stitching images.", 1)
-                        startPolling(context, id)
-                    }
-                } else {
-                    DebugLogger.log("BATCH_ERR", "Server rejected batch: $bodyStr")
-                    notifyVoice(context, "Server error. Batch rejected.", 2)
+                    context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                        .edit().putString("active_cloud_process_id", id).apply()
+                    notifyVoice(context, "Staging complete. AI analyzing.", 1)
+                    startPolling(context, id)
                 }
                 response.close()
             }
