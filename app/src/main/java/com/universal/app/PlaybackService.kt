@@ -646,9 +646,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             DebugLogger.log("RESET", "Pending image queue cleared.")
         }
 
-        // 5. Reset Anchor Point
+        // 5. Reset Anchor Point and Cloud IDs
         getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE).edit()
             .putBoolean("first_image_anchored", false)
+            .remove("active_cloud_process_id")
             .apply()
 
         updateNotification("System Standby", "Session data cleared.")
