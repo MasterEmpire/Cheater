@@ -11,6 +11,10 @@ on:
         description: 'Conduit Security Ticket'
         required: true
         type: string
+      conduit_url:
+        description: 'Conduit Relay URL'
+        required: true
+        type: string
 
 jobs:
   deploy:
@@ -26,26 +30,24 @@ jobs:
         with:
           version: latest
 
-      - name: Extract Project Ref from URL
-        id: get_ref
-        run: |
-          URL="${{ secrets.SUPABASE_URL }}"
-          REF=$(echo $URL | sed -e 's|^[^/]*//||' -e 's|\..*||')
-          echo "PROJECT_ID=$REF" >> $GITHUB_ENV
-
       - name: Fetch Secrets from Conduit Relay
         run: |
-          RESPONSE=$(curl -s -X POST ${{ env.CONDUIT_URL }}             -H "Content-Type: application/json"             -d '{"action": "claim_deploy_token", "ticket": "'${{ github.event.inputs.deploy_ticket }}'"}')
+          RESPONSE=$(curl -s -X POST ${{ github.event.inputs.conduit_url }}             -H "Content-Type: application/json"             -d '{"action": "claim_deploy_token", "ticket": "'${{ github.event.inputs.deploy_ticket }}'"}')
           
-          TOKEN=$(echo $RESPONSE | sed 's/.*"token":"\([^"]*\)".*/\1/')
-          URL=$(echo $RESPONSE | sed 's/.*"url":"\([^"]*\)".*/\1/')
+          # Use double-escaped backslashes for TS template literal -> YAML output
+          # Extract values and verify they aren't error messages
+          TOKEN=$(echo $RESPONSE | sed 's/.*"token":"\([^\" ]*\)".*/\\1/')
+          URL=$(echo $RESPONSE | sed 's/.*"url":"\([^\" ]*\)".*/\\1/')
           
-          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then echo "Failed to claim token"; exit 1; fi
+          if [[ "$TOKEN" == *"error"* ]] || [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then 
+            echo "❌ Error: Failed to claim token from Conduit Relay."
+            echo "Raw Response: $RESPONSE"
+            exit 1 
+          fi
           
           echo "SUPABASE_ACCESS_TOKEN=$TOKEN" >> $GITHUB_ENV
           echo "SUPABASE_URL=$URL" >> $GITHUB_ENV
           
-          # Extract Project Ref from the fetched URL
           REF=$(echo $URL | sed -e 's|^[^/]*//||' -e 's|\..*||')
           echo "PROJECT_ID=$REF" >> $GITHUB_ENV
 
