@@ -219,15 +219,17 @@ fun AppDashboard() {
             }
             
             item { 
-                // Switch to GetContent to allow browsing full File Manager / Documents / Gallery
-                val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let { Uploader.uploadUri(context, it) } }
+                // Using GetMultipleContents to allow batch selection for AI stitching
+                val pickerLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+                    if (uris.isNotEmpty()) Uploader.uploadUris(context, uris)
+                }
                 OutlinedButton(
                     onClick = { pickerLauncher.launch("image/*") },
                     modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
                 ) { 
                     Icon(Icons.Default.Add, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("BROWSE & UPLOAD IMAGE") 
+                    Text("BROWSE & UPLOAD IMAGES (MULTI)") 
                 }
             }
         }
