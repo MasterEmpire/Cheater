@@ -84,6 +84,8 @@ object Uploader {
                 if (response.isSuccessful && bodyStr.isNotEmpty()) {
                     val id = JSONObject(bodyStr).optString("id")
                     if (id.isNotEmpty()) {
+                        context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                            .edit().putString("active_cloud_process_id", id).apply()
                         DebugLogger.log("POLL", "Batch ID Received: $id. AI is now stitching.")
                         notifyVoice(context, "Upload successful. AI is stitching images.", 1)
                         startPolling(context, id)
@@ -127,6 +129,8 @@ object Uploader {
 
                 if (attempts > 100) {
                     DebugLogger.log("POLL", "Max attempts reached for $id. Abandoning.")
+                    context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                        .edit().remove("active_cloud_process_id").apply()
                     notifyVoice(context, "Analysis timed out.")
                     activePolls.remove(id)
                     return
@@ -149,6 +153,8 @@ object Uploader {
                                 }
 
                                 if (record != null && record.optString("status") == "completed") {
+                                    context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                                        .edit().remove("active_cloud_process_id").apply()
                                     val solObj = record.opt("solution_json")
                                     val solStr = if (solObj is JSONObject) solObj.toString() else solObj?.toString() ?: ""
                                     
