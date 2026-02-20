@@ -141,10 +141,11 @@ class KeyInterceptService : AccessibilityService() {
             }
             if (action == KeyEvent.ACTION_UP) {
                 val duration = event.eventTime - lastHeadsetDownTime
+                val type = if (duration > 600) "L" else "S"
+                DebugLogger.log("HEADSET_RAW", "Press: ${duration}ms -> Added: $type")
                 handler.removeCallbacks(headsetGestureRunnable)
                 
-                // Append 'L' for Long, 'S' for Short to the sequence string
-                gestureSequence += if (duration > 600) "L" else "S"
+                gestureSequence += type
                 
                 handler.postDelayed(headsetGestureRunnable, 450)
                 return true
@@ -592,6 +593,7 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun processHeadsetGesture(sequence: String) {
         if (sequence.isEmpty()) return
+        DebugLogger.log("HEADSET_SIG", "Evaluating sequence: '$sequence' | NavMode: $isEarphoneNavMode")
         val intent = Intent(this, PlaybackService::class.java)
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         
@@ -641,6 +643,7 @@ class KeyInterceptService : AccessibilityService() {
                 "SS" -> intent.action = "NEXT"
                 "L" -> intent.action = "NEXT_CATEGORY"
                 "SL" -> {
+                    DebugLogger.log("HEADSET", "Nav Mode: Triggering SL Camera Toggle")
                     toggleCamera()
                     return
                 }
