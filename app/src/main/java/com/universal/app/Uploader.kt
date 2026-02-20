@@ -43,16 +43,18 @@ object Uploader {
         }.start()
     }
 
-    fun uploadUri(context: Context, uri: Uri) {
+    fun uploadUris(context: Context, uris: List<Uri>) {
         Thread {
             try {
-                DebugLogger.log("UPLOAD", "Processing manual URI: $uri")
-                val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
-                val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@Thread
-                val tempFile = File(context.cacheDir, "manual_${System.currentTimeMillis()}.jpg")
-                tempFile.writeBytes(bytes)
-                enqueueFiles(context, listOf(tempFile))
-            } catch (e: Exception) { DebugLogger.log("UPLOAD", "Uri Error: ${e.message}") }
+                DebugLogger.log("UPLOAD", "Processing ${uris.size} manual URIs")
+                val files = uris.mapIndexed { index, uri ->
+                    val bytes = context.contentResolver.openInputStream(uri)?.readBytes() ?: return@Thread
+                    val tempFile = File(context.cacheDir, "manual_${System.currentTimeMillis()}_$index.jpg")
+                    tempFile.writeBytes(bytes)
+                    tempFile
+                }
+                enqueueFiles(context, files)
+            } catch (e: Exception) { DebugLogger.log("UPLOAD", "Multi-Uri Error: ${e.message}") }
         }.start()
     }
 
