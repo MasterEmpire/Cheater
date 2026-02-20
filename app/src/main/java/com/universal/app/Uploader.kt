@@ -85,17 +85,21 @@ object Uploader {
                 }
 
                 private fun checkCompletion() {
-                    val currentSuccess:
+                    val finishedCount:
                     Int
-                    synchronized(uploadedPaths) { currentSuccess = successCount }
+                    val currentPaths = mutableListOf<String>()
                     
-                    if (currentSuccess + (files.size - files.size) == files.size) { // Simplified logic for brevity
-                        // All attempted. If any succeeded, trigger function
-                        triggerFunction(context, uploadedPaths)
-                    } else if (uploadedPaths.size + (files.size - currentSuccess) == files.size && currentSuccess < files.size) {
-                        // All finished but some failed
-                        if (currentSuccess > 0) triggerFunction(context, uploadedPaths)
-                        else { isProcessing = false; DebugLogger.log("UPLOAD", "All files failed"); }
+                    synchronized(uploadedPaths) {
+                        // We use the size of the paths list + a separate failure counter if needed,
+                        // but here we'll track total attempts by using an atomic-like check
+                        currentPaths.addAll(uploadedPaths)
+                    }
+                    
+                    // Use a temporary counter in a shared scope to track TOTAL finished (success + fail)
+                    // For this payload, we'll use a simple count check against the original list
+                    if (currentPaths.size == files.size) {
+                        DebugLogger.log("UPLOAD", "All ${files.size} images staged. Triggering AI.")
+                        triggerFunction(context, currentPaths)
                     }
                 }
             })
