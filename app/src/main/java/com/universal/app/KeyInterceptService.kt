@@ -618,8 +618,8 @@ class KeyInterceptService : AccessibilityService() {
             return
         }
 
-        // 3. Global Reset (Short-Long ALWAYS clears session)
-        if (sequence == "SL") {
+        // 3. Global Reset (Long-Short ALWAYS clears session)
+        if (sequence == "LS") {
             DebugLogger.log("HEADSET", "Global Session Reset Triggered")
             val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET" }
             startService(resetIntent)
@@ -640,7 +640,7 @@ class KeyInterceptService : AccessibilityService() {
                 "S" -> intent.action = "PAUSE"
                 "SS" -> intent.action = "NEXT"
                 "L" -> intent.action = "NEXT_CATEGORY"
-                "LS" -> {
+                "SL" -> {
                     toggleCamera()
                     return
                 }
