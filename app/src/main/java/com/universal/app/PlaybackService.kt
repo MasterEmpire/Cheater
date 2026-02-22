@@ -21,7 +21,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private val audioSafetyReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> speakStatus("Display deactivated", 2)
+                Intent.ACTION_SCREEN_OFF -> {
+                    vibrator?.vibrate(VibrationEffect.createOneShot(400, 40)) // Distinct long, light pulse for 'Close'
+                    speakStatus("Display deactivated", 2)
+                }
                 Intent.ACTION_SCREEN_ON -> speakStatus("Display activated", 2)
                 android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
                     DebugLogger.log("STEALTH", "Headset unplugged! Emergency Audio Kill-switch engaged.")
