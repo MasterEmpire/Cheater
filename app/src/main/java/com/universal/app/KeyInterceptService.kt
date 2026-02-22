@@ -520,7 +520,7 @@ class KeyInterceptService : AccessibilityService() {
                 smartShutterClick()
                 successiveRemaining--
                 triggerSuccessiveLoop()
-            }, 1200)
+            }, 2000)
         } else {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             val total = prefs.getInt("successive_count", 3)
