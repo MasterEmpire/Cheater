@@ -727,7 +727,7 @@ class KeyInterceptService : AccessibilityService() {
                     lastCameraPackage = pkg
                     isLensSwitchPending = true
                     DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
-                    speak("Optimizing camera settings", true)
+                    // Silenced to reduce chatter: speak("Optimizing camera settings", true)
                     attemptLensSwitch(25)
                 }
             }
