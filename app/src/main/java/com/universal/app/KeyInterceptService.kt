@@ -623,6 +623,7 @@ class KeyInterceptService : AccessibilityService() {
         // 3. Global Reset (Long-Short ALWAYS clears session)
         if (sequence == "LS") {
             DebugLogger.log("HEADSET", "Global Session Reset Triggered")
+            hapticPulse(300)
             val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET" }
             startService(resetIntent)
             return
