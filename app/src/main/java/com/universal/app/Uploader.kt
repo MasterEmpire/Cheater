@@ -15,6 +15,7 @@ import java.io.IOException
 import java.util.*
 
 object Uploader {
+    private var globalSessionVersion = 0
     private val client = OkHttpClient.Builder()
         .connectTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
         .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
@@ -173,14 +174,16 @@ object Uploader {
     private val activePolls = mutableSetOf<String>()
 
     fun clearQueue() {
+        globalSessionVersion++
         activePolls.clear()
         isProcessing = false
-        DebugLogger.log("RESET", "Uploader state reset.")
+        DebugLogger.log("RESET", "Uploader state reset. New Version: $globalSessionVersion")
     }
 
     fun startPolling(context: Context, id: String) {
         if (activePolls.contains(id)) return
         activePolls.add(id)
+        val localVersion = globalSessionVersion
         
         val handler = android.os.Handler(android.os.Looper.getMainLooper())
         val url = "https://xvldfsmxskhemkslsbym.supabase.co/rest/v1/processed_images?id=eq.$id&select=status,solution_json"
@@ -189,7 +192,7 @@ object Uploader {
             val self = this
             var attempts = 0
             override fun run() {
-                if (!activePolls.contains(id)) return
+                if (localVersion != globalSessionVersion || !activePolls.contains(id)) return
                 
                 // Heartbeat: Use priority 0 (Low) to ensure we don't interrupt active speech
                 if (attempts > 0 && attempts % 5 == 0) {
