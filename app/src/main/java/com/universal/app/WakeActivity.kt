@@ -45,9 +45,10 @@ class WakeActivity : Activity() {
                 startActivity(homeIntent)
 
                 // 2. Announce Status
+                val time = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
                 val ttsIntent = Intent(this, PlaybackService::class.java).apply {
                     action = "SPEAK_STATUS"
-                    putExtra("message", "System active. Screen is on.")
+                    putExtra("message", "System active. The time is $time")
                     putExtra("immediate", true)
                 }
                 startService(ttsIntent)
