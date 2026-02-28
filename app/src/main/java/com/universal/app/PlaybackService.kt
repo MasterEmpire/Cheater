@@ -25,7 +25,10 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     vibrator?.vibrate(VibrationEffect.createOneShot(400, 40)) // Distinct long, light pulse for 'Close'
                     speakStatus("Display deactivated", 2)
                 }
-                Intent.ACTION_SCREEN_ON -> speakStatus("Display activated", 2)
+                Intent.ACTION_SCREEN_ON -> {
+                    val time = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault()).format(java.util.Date())
+                    speakStatus("The time is $time", 2)
+                }
                 android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
                     DebugLogger.log("STEALTH", "Headset unplugged! Emergency Audio Kill-switch engaged.")
                     stopAllPlayback()
