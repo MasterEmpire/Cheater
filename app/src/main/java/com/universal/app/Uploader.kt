@@ -162,7 +162,12 @@ object Uploader {
                     startPolling(context, id)
                 } else {
                     DebugLogger.log("CLOUD_ERR", "Edge Function Error (Code: $code): $bodyStr")
-                    notifyVoice(context, "Cloud analysis error. Check trace.", 2)
+                    if (code == 422 || bodyStr.contains("low_quality")) {
+                        notifyVoice(context, "Image quality too low. Process discarded. Resetting.", 2)
+                        context.startService(Intent(context, PlaybackService::class.java).apply { action = "RESET" })
+                    } else {
+                        notifyVoice(context, "Cloud analysis error. Check trace.", 2)
+                    }
                 }
                 response.close()
             }
