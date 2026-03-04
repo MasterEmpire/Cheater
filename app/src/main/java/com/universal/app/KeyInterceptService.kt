@@ -11,6 +11,8 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
 
 import android.provider.MediaStore
 import android.view.KeyEvent
@@ -49,6 +51,16 @@ class KeyInterceptService : AccessibilityService() {
     private var isEarphoneNavMode = false
     private var isLongPressTriggered = false
     private var successiveRemaining = 0
+
+    private fun pulse() {
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            v.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            v.vibrate(50)
+        }
+    }
     
     private val volDownBatchRunnable = Runnable {
         isLongPressTriggered = true
@@ -515,6 +527,7 @@ class KeyInterceptService : AccessibilityService() {
             }
         }
 
+        pulse()
         if (foundNode != null) {
             DebugLogger.log("AUTO", "Smart Shutter Active")
             if (successiveRemaining <= 0) speak("Capturing image")
