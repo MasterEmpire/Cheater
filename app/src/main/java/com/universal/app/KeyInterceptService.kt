@@ -11,8 +11,7 @@ import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
-import android.os.VibrationEffect
-import android.os.Vibrator
+
 import android.provider.MediaStore
 import android.view.KeyEvent
 import android.view.View
