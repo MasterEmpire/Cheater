@@ -348,6 +348,13 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             }
 
             val root = JSONObject(jsonStr)
+            
+            // Announce Confidence Score if available
+            val score = root.optInt("confidence_score", -1)
+            if (score != -1) {
+                speakStatus("Confidence $score out of 10", 1)
+            }
+
             val solutions = root.optJSONArray("solutions") ?: return
             if (solutions.length() == 0) return
             
