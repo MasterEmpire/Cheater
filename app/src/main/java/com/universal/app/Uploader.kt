@@ -229,7 +229,19 @@ object Uploader {
                                     JSONObject(resBody)
                                 }
 
-                                if (record != null && record.optString("status") == "completed") {
+                                val status = record?.optString("status")
+
+                                if (status == "low_quality") {
+                                    DebugLogger.log("POLL", "Worker reported LOW QUALITY for $id. Resetting.")
+                                    context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                                        .edit().remove("active_cloud_process_id").apply()
+                                    notifyVoice(context, "Image quality too low. System reset.", 2)
+                                    context.startService(Intent(context, PlaybackService::class.java).apply { action = "RESET" })
+                                    activePolls.remove(id)
+                                    return
+                                }
+
+                                if (status == "completed") {
                                     context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                                         .edit().remove("active_cloud_process_id").apply()
                                     val solObj = record.opt("solution_json")
