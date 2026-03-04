@@ -28,7 +28,16 @@ CATEGORIES:
 - wo: Mathematical Workout / Long Form
 
 OUTPUT JSON:
-{ "questions": [ { "number": "string", "type": "string", "question_text": "string", "options": ["string"] } ] }
+{ 
+  "confidence_score": number, 
+  "questions": [ { "number": "string", "type": "string", "question_text": "string", "options": ["string"] } ] 
+}
+
+CONFIDENCE SCORE RULES:
+- Rate 1-10 based on image clarity, readability, and context completeness.
+- 1-4: Unreadable, extremely blurry, or unrelated images.
+- 5-6: Partially readable but ambiguous; high risk of hallucination.
+- 7-10: Clear text, logically ordered, high certainty.
 `;
 
 const SOLVER_PROMPT_TEMPLATE = (friendlyText: string) => `
@@ -179,7 +188,16 @@ serve(async (req) => {
     
     try {
       const ocrJson = JSON.parse(ocrExtracted);
-      console.log(`[${requestId}] [OCR_STAGE] Successfully parsed OCR JSON.`);
+      console.log(`[${requestId}] [OCR_STAGE] Successfully parsed OCR JSON. Score: ${ocrJson.confidence_score}`);
+
+      if (ocrJson.confidence_score <= 6) {
+        console.warn(`[${requestId}] [OCR_STAGE] REJECTED: Confidence score ${ocrJson.confidence_score} is too low.`);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: "low_quality", 
+          score: ocrJson.confidence_score 
+        }), { status: 422 });
+      }
 
       const { data: row, error: dbError } = await supabase.from('processed_images').insert({
           transcription: ocrJson,
