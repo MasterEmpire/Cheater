@@ -654,7 +654,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             .apply()
 
         updateNotification("System Standby", "Session data cleared.")
-        speakStatus("System reset. Session data cleared.", 2)
+        val reason = intent?.getStringExtra("reason") ?: "System reset."
+        speakStatus("$reason Session data cleared.", 2)
     }
 
     private fun savePlaybackState() {
