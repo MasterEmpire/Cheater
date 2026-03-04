@@ -22,7 +22,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
                 Intent.ACTION_SCREEN_OFF -> {
-                    vibrator?.vibrate(VibrationEffect.createOneShot(400, 40)) // Distinct long, light pulse for 'Close'
                     speakStatus("Display deactivated", 2)
                 }
                 Intent.ACTION_SCREEN_ON -> {
@@ -412,10 +411,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun triggerReadyVibration() {
-        val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
-        // Discrete Double-Tap at 20% power
-        val effect = VibrationEffect.createWaveform(longArrayOf(0, 40, 100, 40), intArrayOf(0, 50, 0, 50), -1)
-        vibrator.vibrate(effect)
         updateNotification("Ready", "Solutions loaded. Auto-play in 60s.")
         scheduleAutoPlay()
     }
@@ -842,10 +837,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         
         DebugLogger.log("HEADSET_EVENT", "--- HEADSET CLICK DETECTED ---")
         
-        // Stealth micro-tick (40ms at low power)
-        vibrator?.vibrate(VibrationEffect.createOneShot(40, 60))
-        DebugLogger.log("HEADSET_EVENT", "Vibration Triggered Successfully")
-
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val actuallyActive = prefs.getBoolean("is_active", true)
         
