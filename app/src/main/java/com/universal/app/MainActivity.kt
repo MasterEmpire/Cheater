@@ -34,6 +34,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -67,11 +70,11 @@ fun AppDashboard() {
     val prefs = remember { context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE) }
     
     var hasPermission by remember { mutableStateOf(checkPermissions(context)) }
-    var hasNotificationPermission by remember { mutableStateOf(
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        } else true
-    ) }
+    var hasNotificationPermission by remember { mutableStateOf(false) }
+    var hasBatteryOptim by remember { mutableStateOf(checkBattery(context)) }
+    var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var hasAccessibility by remember { mutableStateOf(isAccessibilityEnabled(context)) }
+    
     var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", true)) }
     var audioFiles by remember { mutableStateOf(listOf<File>()) }
     var showLogs by remember { mutableStateOf(false) }
@@ -82,6 +85,25 @@ fun AppDashboard() {
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         hasPermission = results.values.all { it }
         if (hasPermission) startServices(context)
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasPermission = checkPermissions(context)
+                hasBatteryOptim = checkBattery(context)
+                hasOverlay = Settings.canDrawOverlays(context)
+                hasAccessibility = isAccessibilityEnabled(context)
+                hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                } else true
+                
+                if (hasPermission && isSystemActive) startServices(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     Scaffold(
@@ -115,7 +137,7 @@ fun AppDashboard() {
             item {
                 Text("SYSTEM HEALTH", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     PermissionChip("Files", hasPermission, Modifier.weight(1f)) {
                         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
@@ -124,11 +146,11 @@ fun AppDashboard() {
                         }
                         launcher.launch(perms)
                     }
-                    PermissionChip("Battery", checkBattery(context), Modifier.weight(1f)) { requestBatteryOptimization(context) }
-                    PermissionChip("Overlay", Settings.canDrawOverlays(context), Modifier.weight(1f)) { 
-                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) 
+                    PermissionChip("Battery", hasBatteryOptim, Modifier.weight(1f)) { requestBatteryOptimization(context) }
+                    PermissionChip("Overlay", hasOverlay, Modifier.weight(1f)) { 
+                        context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
                     }
-                                        PermissionChip("Access", isAccessibilityEnabled(context), Modifier.weight(1f)) {
+                    PermissionChip("Access", hasAccessibility, Modifier.weight(1f)) {
                         context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     }
                     PermissionChip("Alerts", hasNotificationPermission, Modifier.weight(1f)) {
