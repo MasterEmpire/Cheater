@@ -185,7 +185,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             "NEXT_CATEGORY" -> playNextCategory()
             "PREVIOUS" -> playPrevious()
             "PAUSE" -> pauseAudio()
-            "RESET" -> resetEverything()
+            "RESET" -> resetEverything(intent)
             "PLAY_SPECIFIC" -> intent.getStringExtra("file_name")?.let { playSpecificFile(it) }
             "SPEAK_STATUS" -> {
                 val msg = intent.getStringExtra("message") ?: ""
@@ -615,7 +615,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun resetEverything() {
+    private fun resetEverything(intent: Intent? = null) {
         // 1. Kill Timers and Media
         autoPlayRunnable?.let { autoPlayHandler.removeCallbacks(it) }
         handler.removeCallbacksAndMessages(null)
