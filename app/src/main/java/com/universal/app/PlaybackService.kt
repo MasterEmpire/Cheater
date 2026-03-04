@@ -647,7 +647,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             .apply()
 
         updateNotification("System Standby", "Session data cleared.")
-        speakStatus("Session cleared", 2)
+        speakStatus("System reset. Session data cleared.", 2)
     }
 
     private fun savePlaybackState() {
