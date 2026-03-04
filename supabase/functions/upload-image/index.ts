@@ -205,8 +205,8 @@ serve(async (req) => {
     const firstResult = await Promise.race([worldAPromise, worldBPromise]);
     results.push(firstResult);
 
-    // Grace Period: Wait up to 5 seconds for the other one to finish
-    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 5000));
+    // Grace Period: Wait up to 30 seconds for the other one to finish
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 30000));
     const secondResult = await Promise.race([worldAPromise === firstResult ? worldBPromise : worldAPromise, timeoutPromise]);
     
     if (!secondResult.timeout) results.push(secondResult);
