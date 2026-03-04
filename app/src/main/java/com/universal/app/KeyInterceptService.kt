@@ -46,6 +46,7 @@ class KeyInterceptService : AccessibilityService() {
     private var lastCameraPackage = ""
     private var isLensSwitchPending = false
     private var autoCaptureRunnable: Runnable? = null
+    private var isInCameraSession = false
     private var isEarphoneNavMode = false
     private var isLongPressTriggered = false
     private var successiveRemaining = 0
@@ -252,9 +253,10 @@ class KeyInterceptService : AccessibilityService() {
         
         if (currentPackage.contains("camera") || currentPackage.contains("lens") || currentPackage.contains("capture")) {
             DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing.")
+            isInCameraSession = false // Mark inactive to prevent double-speech in AccessibilityEvent
             autoCaptureRunnable?.let { handler.removeCallbacks(it) }
             autoCaptureRunnable = null
-            speak("Closing camera", true)
+            speak("Camera closed", true)
             removeTouchBlocker()
             performGlobalAction(GLOBAL_ACTION_HOME)
         } else {
@@ -715,6 +717,7 @@ class KeyInterceptService : AccessibilityService() {
         val isCam = pkg.contains("camera") || pkg.contains("lens")
 
         if (isCam) {
+            isInCameraSession = true
             if (!prefs.getBoolean("is_active", false)) return
 
             if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
@@ -723,20 +726,25 @@ class KeyInterceptService : AccessibilityService() {
                     lastCameraPackage = pkg
                     isLensSwitchPending = true
                     DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
-                    // Silenced to reduce chatter: speak("Optimizing camera settings", true)
                     attemptLensSwitch(25)
                 }
             }
-        } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            // Handle auto-cleanup only if Global Blocker is OFF
-            if (!shouldBlock) {
-                val activeRoot = rootInActiveWindow?.packageName?.toString() ?: ""
-                val rootIsCam = activeRoot.contains("camera") || activeRoot.contains("lens")
-                if (!isCam && pkg.isNotEmpty() && !rootIsCam) {
-                    lastCameraPackage = ""
-                    isLensSwitchPending = false
-                    removeTouchBlocker()
-                }
+        } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && isInCameraSession) {
+            // Check if the actual active window is no longer the camera
+            val activeRoot = rootInActiveWindow?.packageName?.toString() ?: ""
+            val rootIsCam = activeRoot.contains("camera") || activeRoot.contains("lens")
+            
+            if (!isCam && !rootIsCam) {
+                DebugLogger.log("AUTO_CAM", "Camera Session Ended (Timeout/External)")
+                isInCameraSession = false
+                speak("Camera closed", true)
+                
+                // Global Cleanup
+                lastCameraPackage = ""
+                isLensSwitchPending = false
+                autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+                autoCaptureRunnable = null
+                removeTouchBlocker()
             }
         }
     }
