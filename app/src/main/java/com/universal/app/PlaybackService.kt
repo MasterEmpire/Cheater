@@ -41,7 +41,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     private var silentPlayer: MediaPlayer? = null
     private var isFocusHeld = false
     private var lastFocusLossTime = 0L
-    private var vibrator: Vibrator? = null
     private val audioFolder by lazy { File(cacheDir, "audio_answers") }
     private val pendingSyntheses = java.util.concurrent.atomic.AtomicInteger(0)
     private val synthesisQueue = java.util.LinkedList<Pair<String, File>>()
@@ -65,8 +64,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ScreenOffKeys")
         wakeLock?.acquire(3 * 60 * 60 * 1000L)
-
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         
         // 1. Setup Session First
         setupMediaSession()
@@ -143,7 +140,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     // Mandatory abstract method for compiler
                     DebugLogger.log("DIAGNOSTIC", "TTS FAILED (Legacy) for $id")
                     if (id != null && !id.startsWith("STATUS_")) {
-                        if (pendingSyntheses.decrementAndGet() == 0) triggerReadyVibration()
+                        pendingSyntheses.decrementAndGet()
                     }
                 }
 
@@ -157,7 +154,7 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                     }
                     DebugLogger.log("DIAGNOSTIC", "TTS FAILED for $id: $reason")
                     if (id != null && !id.startsWith("STATUS_")) {
-                        if (pendingSyntheses.decrementAndGet() == 0) triggerReadyVibration()
+                        pendingSyntheses.decrementAndGet()
                     }
                 }
             })
@@ -414,13 +411,9 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         isProcessingBatch = false
         synchronized(playlists) { playlists.values.forEach { it.sortBy { f -> f.name } } }
         speakStatus("All solutions generated and verified.", 1)
-        triggerReadyVibration()
     }
 
-    private fun triggerReadyVibration() {
-        updateNotification("Ready", "Solutions loaded. Auto-play in 60s.")
-        scheduleAutoPlay()
-    }
+
 
     private fun scheduleAutoPlay() {
         autoPlayRunnable?.let { autoPlayHandler.removeCallbacks(it) }
@@ -898,7 +891,6 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setFullScreenIntent(pendingIntent, true)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setVibrate(longArrayOf(0L)) // Mute system vibration (0ms)
                 .setAutoCancel(true)
             DebugLogger.log("WAKE_TRACE", "Step 4: Notification Builder configured with FullScreenIntent")
 
