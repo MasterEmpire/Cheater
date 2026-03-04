@@ -56,7 +56,6 @@ class KeyInterceptService : AccessibilityService() {
             prefs.edit().putBoolean("touch_blocker", false).apply()
             removeTouchBlocker()
             speak("Emergency unlock: Touch restored", true)
-            hapticPulse(500)
         } else {
             // Fallback: If blocker wasn't on, we can still use this for batch upload
             speak("Initiating batch upload", true)
@@ -71,7 +70,6 @@ class KeyInterceptService : AccessibilityService() {
         val status = if (isEarphoneNavMode) "Earphone Navigation Activated" else "Earphone Navigation Deactivated"
         DebugLogger.log("MODE", status)
         speak(status, true)
-        hapticPulse(500)
         
         if (isEarphoneNavMode) {
             val intent = Intent(this@KeyInterceptService, PlaybackService::class.java).apply {
@@ -383,7 +381,6 @@ class KeyInterceptService : AccessibilityService() {
             if (success) {
                 DebugLogger.log("LENS_FLOW", "Virtual click SUCCESS")
                 speak("Wide lens activated", true)
-                hapticPulse(50)
                 true
             } else {
                 // Fallback to Physical Tap for Samsung/Google Camera
@@ -444,7 +441,6 @@ class KeyInterceptService : AccessibilityService() {
             .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
             .build()
         dispatchGesture(gesture, null, null)
-        hapticPulse(100)
     }
 
     private fun performPinchFallback() {
@@ -504,7 +500,6 @@ class KeyInterceptService : AccessibilityService() {
         if (foundNode != null) {
             DebugLogger.log("AUTO", "Smart Shutter Active")
             if (successiveRemaining <= 0) speak("Capturing image")
-            hapticPulse(100)
             foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
         } else {
             DebugLogger.log("AUTO", "Shutter Node Missing")
@@ -526,22 +521,9 @@ class KeyInterceptService : AccessibilityService() {
             val total = prefs.getInt("successive_count", 3)
             // The first image was the anchor, so total-1 images are data
             speak("Batch capture complete. ${total - 1} images queued.", true)
-            hapticPulse(200)
         }
     }
 
-    private fun hapticPulse(ms: Long) {
-        try {
-            val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (v.hasVibrator()) {
-                // Use low amplitude (50/255) for stealth
-                val stealthMs = if (ms > 100) 60L else ms 
-                v.vibrate(VibrationEffect.createOneShot(stealthMs, 50))
-            }
-        } catch (e: Exception) { 
-            DebugLogger.log("HAPTIC_ERR", "${e.message}")
-        }
-    }
 
     private fun clickShutterCoordinates() {
         val metrics = resources.displayMetrics
@@ -567,9 +549,6 @@ class KeyInterceptService : AccessibilityService() {
 
     private fun triggerReset() {
         speak("System reset, all data cleared", true)
-        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE))
-        
         val intent = Intent(this, PlaybackService::class.java)
         intent.action = "RESET"
         startService(intent)
@@ -623,7 +602,6 @@ class KeyInterceptService : AccessibilityService() {
         // 3. Global Reset (Long-Short ALWAYS clears session)
         if (sequence == "LS") {
             DebugLogger.log("HEADSET", "Global Session Reset Triggered")
-            hapticPulse(300)
             val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET" }
             startService(resetIntent)
             return
