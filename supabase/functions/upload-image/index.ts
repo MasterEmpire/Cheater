@@ -183,26 +183,53 @@ serve(async (req) => {
         });
     }
 
-    const ocrRaw = await callGeminiApi(supabase, PRIMARY_MODEL, null, geminiParts, requestId);
-    const ocrExtracted = extractJson(ocrRaw);
+    // --- PARALLEL WORLD EXECUTION ---
+    console.log(`[${requestId}] [OCR_STAGE] Launching Parallel AI Worlds...`);
     
-    try {
-      const ocrJson = JSON.parse(ocrExtracted);
-      console.log(`[${requestId}] [OCR_STAGE] Successfully parsed OCR JSON. Score: ${ocrJson.confidence_score}`);
-
-      if (ocrJson.confidence_score <= 6) {
-        console.warn(`[${requestId}] [OCR_STAGE] REJECTED: Confidence score ${ocrJson.confidence_score} is too low.`);
-        return new Response(JSON.stringify({ 
-          success: false, 
-          error: "low_quality", 
-          score: ocrJson.confidence_score 
-        }), { status: 422 });
+    const runWorld = async (model: string, name: string) => {
+      try {
+        const raw = await callGeminiApi(supabase, model, null, geminiParts, requestId);
+        const json = JSON.parse(extractJson(raw));
+        return { name, json, success: true };
+      } catch (e) {
+        console.error(`[${requestId}] [${name}] Failed:`, e.message);
+        return { name, success: false };
       }
+    };
 
-      const { data: row, error: dbError } = await supabase.from('processed_images').insert({
-          transcription: ocrJson,
-          status: 'transcribed'
-      }).select().single();
+    const worldAPromise = runWorld(PRIMARY_MODEL, "World_A");
+    const worldBPromise = runWorld(FALLBACK_MODEL, "World_B");
+
+    let results = [];
+    // Wait for the first one to finish
+    const firstResult = await Promise.race([worldAPromise, worldBPromise]);
+    results.push(firstResult);
+
+    // Grace Period: Wait up to 5 seconds for the other one to finish
+    const timeoutPromise = new Promise(resolve => setTimeout(() => resolve({ timeout: true }), 5000));
+    const secondResult = await Promise.race([worldAPromise === firstResult ? worldBPromise : worldAPromise, timeoutPromise]);
+    
+    if (!secondResult.timeout) results.push(secondResult);
+
+    // Filter successful results and pick the highest confidence score
+    const successfulWorlds = results.filter(r => r.success && r.json?.confidence_score);
+    
+    if (successfulWorlds.length === 0) throw new Error("Both AI worlds failed to provide data");
+
+    const bestWorld = successfulWorlds.reduce((prev, current) => 
+      (prev.json.confidence_score > current.json.confidence_score) ? prev : current
+    );
+
+    console.log(`[${requestId}] [OCR_STAGE] Winner: ${bestWorld.name} (Score: ${bestWorld.json.confidence_score})`);
+
+    if (bestWorld.json.confidence_score <= 6) {
+        return new Response(JSON.stringify({ success: false, error: "low_quality", score: bestWorld.json.confidence_score }), { status: 422 });
+    }
+
+    const { data: row, error: dbError } = await supabase.from('processed_images').insert({
+        transcription: bestWorld.json,
+        status: 'transcribed'
+    }).select().single();
 
       if (dbError) throw dbError;
       console.log(`[${requestId}] [OCR_STAGE] Created Database Row: ${row.id}`);
