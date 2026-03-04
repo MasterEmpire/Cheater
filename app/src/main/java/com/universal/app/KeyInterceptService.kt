@@ -539,8 +539,15 @@ class KeyInterceptService : AccessibilityService() {
         } else {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             val total = prefs.getInt("successive_count", 3)
-            // The first image was the anchor, so total-1 images are data
-            speak("Batch capture complete. ${total - 1} images queued.", true)
+            DebugLogger.log("AUTO", "Batch complete. Closing camera automatically.")
+            speak("Batch complete. Closing camera.", true)
+            
+            // Auto-close sequence: Return to home and clear session states
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            isInCameraSession = false
+            removeTouchBlocker()
+            autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+            autoCaptureRunnable = null
         }
     }
 
