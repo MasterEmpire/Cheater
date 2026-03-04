@@ -323,7 +323,6 @@ class KeyInterceptService : AccessibilityService() {
             val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
             try { 
                 wm.removeView(it) 
-                speak("Touch input restored")
             } catch (e: Exception) {}
             blockerOverlay = null
             DebugLogger.log("BLOCKER", "Touch Blocker Removed")
