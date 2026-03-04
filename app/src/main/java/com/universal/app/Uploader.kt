@@ -235,8 +235,22 @@ object Uploader {
                                     DebugLogger.log("POLL", "Worker reported LOW QUALITY for $id. Resetting.")
                                     context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                                         .edit().remove("active_cloud_process_id").apply()
-                                    notifyVoice(context, "Image quality too low. System reset.", 2)
-                                    context.startService(Intent(context, PlaybackService::class.java).apply { action = "RESET" })
+                                    context.startService(Intent(context, PlaybackService::class.java).apply {
+                                        action = "RESET"
+                                        putExtra("reason", "Image quality too low.")
+                                    })
+                                    activePolls.remove(id)
+                                    return
+                                }
+
+                                if (status == "error") {
+                                    DebugLogger.log("POLL", "Worker reported FATAL ERROR for $id.")
+                                    context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                                        .edit().remove("active_cloud_process_id").apply()
+                                    context.startService(Intent(context, PlaybackService::class.java).apply {
+                                        action = "RESET"
+                                        putExtra("reason", "Cloud analysis failed.")
+                                    })
                                     activePolls.remove(id)
                                     return
                                 }
