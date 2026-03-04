@@ -267,7 +267,7 @@ class KeyInterceptService : AccessibilityService() {
             isInCameraSession = false // Mark inactive to prevent double-speech in AccessibilityEvent
             autoCaptureRunnable?.let { handler.removeCallbacks(it) }
             autoCaptureRunnable = null
-            speak("Camera closed", true)
+            speak("Camera closed", false)
             removeTouchBlocker()
             performGlobalAction(GLOBAL_ACTION_HOME)
         } else {
@@ -551,11 +551,12 @@ class KeyInterceptService : AccessibilityService() {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
             val total = prefs.getInt("successive_count", 3)
             DebugLogger.log("AUTO", "Batch complete. Closing camera automatically.")
-            speak("Batch complete. Closing camera.", true)
+            // Set to sequential queue
+            speak("Batch complete. Closing camera.", false)
             
             // Auto-close sequence: Return to home and clear session states
+            isInCameraSession = false // Set false BEFORE home action to prevent redundant event trigger
             performGlobalAction(GLOBAL_ACTION_HOME)
-            isInCameraSession = false
             removeTouchBlocker()
             autoCaptureRunnable?.let { handler.removeCallbacks(it) }
             autoCaptureRunnable = null
@@ -755,7 +756,8 @@ class KeyInterceptService : AccessibilityService() {
             if (!isCam && !rootIsCam) {
                 DebugLogger.log("AUTO_CAM", "Camera Session Ended (Timeout/External)")
                 isInCameraSession = false
-                speak("Camera closed", true)
+                // Set to sequential queue
+                speak("Camera closed", false)
                 
                 // Global Cleanup
                 lastCameraPackage = ""
