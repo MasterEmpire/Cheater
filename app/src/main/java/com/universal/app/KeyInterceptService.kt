@@ -45,6 +45,7 @@ class KeyInterceptService : AccessibilityService() {
     private var isWaitingForDownTapHold = false
     private var lastCameraPackage = ""
     private var isLensSwitchPending = false
+    private var autoCaptureRunnable: Runnable? = null
     private var isEarphoneNavMode = false
     private var isLongPressTriggered = false
     private var successiveRemaining = 0
@@ -251,6 +252,8 @@ class KeyInterceptService : AccessibilityService() {
         
         if (currentPackage.contains("camera") || currentPackage.contains("lens") || currentPackage.contains("capture")) {
             DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing.")
+            autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+            autoCaptureRunnable = null
             speak("Closing camera", true)
             removeTouchBlocker()
             performGlobalAction(GLOBAL_ACTION_HOME)
@@ -265,7 +268,17 @@ class KeyInterceptService : AccessibilityService() {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
 
-            // Start the search timer IMMEDIATELY, don't wait for accessibility events
+            // 10-Second Auto-Capture Logic
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("successive_enabled", false)) {
+                autoCaptureRunnable = Runnable {
+                    DebugLogger.log("AUTO", "10s idle reached. Executing automatic shutter.")
+                    smartShutterClick()
+                }
+                handler.postDelayed(autoCaptureRunnable!!, 10000)
+            }
+
+            // Start the search timer IMMEDIATELY
             handler.postDelayed({ 
                 DebugLogger.log("LENS_FLOW", "Instant-Scan Timer Started")
                 attemptLensSwitch(40) 
@@ -460,13 +473,18 @@ class KeyInterceptService : AccessibilityService() {
     }
 
     private fun smartShutterClick() {
+        // Cancel any pending auto-shutter if manual shutter or auto-loop is triggered
+        autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+        autoCaptureRunnable = null
+
         val root = rootInActiveWindow
         val pkg = root?.packageName?.toString() ?: ""
         val isCamera = pkg.contains("camera") || pkg.contains("lens")
 
         if (!isCamera) {
             DebugLogger.log("SHUTTER", "Blocked: Camera not in foreground ($pkg)")
-            speak("Camera is not launched yet", true)
+            // Only speak if this wasn't an automatic attempt
+            if (successiveRemaining == 0) speak("Camera is not launched yet", true)
             return
         }
 
