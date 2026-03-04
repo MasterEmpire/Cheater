@@ -45,7 +45,8 @@ STRICT TTS RULES:
    - Instead of '1/2', say 'one half'.
    - Instead of '∫', say 'the integral of'.
 2. STEALTH & SPEED:
-   - For 'mc', 'tf', 'fill', 'ma', 'sa': Provide ONLY the answer. Example: "Answer is B" or "Answer is True". No explanations.
+   - For 'mc' (Multiple Choice): Provide the letter AND the full text of the option. Example: "Answer is B, Photosynthesis".
+   - For 'tf', 'fill', 'ma', 'sa': Provide ONLY the answer. Example: "Answer is True". No explanations.
 3. WORKOUT MODE ('wo'):
    - Provide a 'steps' array where each step is a short instruction the student can follow while writing.
    - Format: "First, write down the formula...", "Next, substitute three for x...", "The result is five."
