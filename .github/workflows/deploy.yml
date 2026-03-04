@@ -34,10 +34,9 @@ jobs:
         run: |
           RESPONSE=$(curl -s -X POST ${{ github.event.inputs.conduit_url }}             -H "Content-Type: application/json"             -d '{"action": "claim_deploy_token", "ticket": "'${{ github.event.inputs.deploy_ticket }}'"}')
           
-          # Use double-escaped backslashes for TS template literal -> YAML output
-          # Extract values and verify they aren't error messages
-          TOKEN=$(echo $RESPONSE | sed 's/.*"token":"\([^\" ]*\)".*/\\1/')
-          URL=$(echo $RESPONSE | sed 's/.*"url":"\([^\" ]*\)".*/\\1/')
+          # Parse using jq for reliability
+          TOKEN=$(echo "$RESPONSE" | jq -r '.token')
+          URL=$(echo "$RESPONSE" | jq -r '.url')
           
           if [[ "$TOKEN" == *"error"* ]] || [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then 
             echo "❌ Error: Failed to claim token from Conduit Relay."
