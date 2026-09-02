@@ -227,6 +227,20 @@ fun AppDashboard() {
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outline
                                 )
                             )
+
+                            Button(
+                                onClick = {
+                                    OmniLocalBridge.runDiagnostics(context)
+                                    showLogs = true
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                shape = MaterialTheme.shapes.medium,
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                            ) {
+                                Icon(Icons.Default.Info, null, Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("DIAGNOSE OMNI BRIDGE (AUDIT)", style = MaterialTheme.typography.labelMedium)
+                            }
                         }
 
                         val headsetOnly = remember { mutableStateOf(prefs.getBoolean("headset_only", true)) }
