@@ -741,7 +741,8 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
         currentType = null
         currentIndex = 0
 
-        // 2. Wipe Uploader Memory & Stop Polling
+        // 2. Wipe Uploader Memory, Stop Polling & Abort Omni Hub Session
+        OmniLocalBridge.abort(this)
         Uploader.clearQueue()
 
         // 3. Wipe Audio Disk Cache
