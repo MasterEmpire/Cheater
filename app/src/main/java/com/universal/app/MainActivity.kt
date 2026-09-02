@@ -227,20 +227,6 @@ fun AppDashboard() {
                                     unfocusedBorderColor = MaterialTheme.colorScheme.outline
                                 )
                             )
-
-                            Button(
-                                onClick = {
-                                    OmniLocalBridge.runDiagnostics(context)
-                                    showLogs = true
-                                },
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
-                                shape = MaterialTheme.shapes.medium,
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
-                            ) {
-                                Icon(Icons.Default.Info, null, Modifier.size(16.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("DIAGNOSE OMNI BRIDGE (AUDIT)", style = MaterialTheme.typography.labelMedium)
-                            }
                         }
 
                         val headsetOnly = remember { mutableStateOf(prefs.getBoolean("headset_only", true)) }
@@ -408,7 +394,23 @@ fun LogModal(onDismiss: () -> Unit) {
     val clipboardManager = LocalClipboardManager.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Internal Trace") },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Internal Trace")
+                TextButton(
+                    onClick = { OmniLocalBridge.runDiagnostics(context) },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Info, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(4.dp))
+                    Text("AUDIT BRIDGE", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        },
         text = { LazyColumn(modifier = Modifier.height(400.dp)) { items(DebugLogger.logs) { Text(it, style = MaterialTheme.typography.bodySmall) } } },
         confirmButton = {
             Row {
