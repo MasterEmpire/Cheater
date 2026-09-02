@@ -30,6 +30,7 @@ object OmniLocalBridge {
     private var pendingFiles: List<File> = emptyList()
     private var receiverRegistered = false
     private var timeoutRunnable: Runnable? = null
+    private const val DEAD_MAN_TIMEOUT_MS = 120000L // 2 minutes of pure silence triggers fail-safe
 
     private val omniReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent?) {
@@ -42,6 +43,8 @@ object OmniLocalBridge {
                     val statusMsg = intent?.getStringExtra("extra_message") ?: "Processing in Omni Hub..."
                     DebugLogger.log("OMNI_STATUS", "⚡ Status from Omni Hub: $statusMsg")
                     notifyVoice(context, statusMsg, priority = 0)
+                    // Keep-Alive: Reset the 2-minute dead man's switch on active heartbeat
+                    resetDeadManSwitch(context)
                 }
                 ACTION_OMNI_RESULT -> {
                     cancelTimeout()
@@ -230,7 +233,7 @@ object OmniLocalBridge {
             }
 
             DebugLogger.log("OMNI_BRIDGE_SENT", "Service dispatch result component: $startResult")
-            startTimeout(context)
+            resetDeadManSwitch(context)
 
         } catch (e: Exception) {
             DebugLogger.log("OMNI_BRIDGE_ERR", "❌ Dispatch Exception: ${e.message}\n${e.stackTraceToString()}")
@@ -272,13 +275,14 @@ object OmniLocalBridge {
         }
     }
 
-    private fun startTimeout(context: Context) {
+    private fun resetDeadManSwitch(context: Context) {
         cancelTimeout()
         timeoutRunnable = Runnable {
-            DebugLogger.log("OMNI_TIMEOUT", "⏱️ Omni Hub local request timed out after 90 seconds (Zero response from service).")
-            handleFailure(context, "Local engine timed out after 90s")
+            DebugLogger.log("OMNI_TIMEOUT", "⏱️ Dead man's switch tripped: Omni Hub was silent for 120s. Dispatching abort & fallback.")
+            abort(context)
+            handleFailure(context, "Local engine silent for 2 minutes")
         }
-        handler.postDelayed(timeoutRunnable!!, 90000)
+        handler.postDelayed(timeoutRunnable!!, DEAD_MAN_TIMEOUT_MS)
     }
 
     private fun cancelTimeout() {
