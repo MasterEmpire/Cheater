@@ -42,10 +42,6 @@ object Uploader {
     }
 
     fun enqueueFiles(context: Context, files: List<File>) {
-        if (!isOnline(context)) {
-            notifyVoice(context, "Upload failed. Your internet is down.", 2)
-            return
-        }
         if (files.isEmpty()) {
             DebugLogger.log("UPLOADER", "Abort: Enqueue called with empty list.")
             return
@@ -56,18 +52,54 @@ object Uploader {
             return
         }
 
+        val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val useOmniEngine = prefs.getBoolean("use_omni_engine", true)
+
+        if (useOmniEngine) {
+            isProcessing = true
+            watchdogHandler.removeCallbacks(watchdogRunnable)
+            watchdogHandler.postDelayed(watchdogRunnable, 240000)
+            DebugLogger.log("UPLOADER", "Routing ${files.size} images to local Omni Hub engine.")
+            OmniLocalBridge.execute(context, files)
+            return
+        }
+
+        if (!isOnline(context)) {
+            notifyVoice(context, "Upload failed. Your internet is down.", 2)
+            return
+        }
+
         Thread {
             isProcessing = true
             watchdogHandler.removeCallbacks(watchdogRunnable)
-            watchdogHandler.postDelayed(watchdogRunnable, 180000) // 3-minute safety net
+            watchdogHandler.postDelayed(watchdogRunnable, 180000)
             val total = files.size
-            DebugLogger.log("UPLOADER", "--- NEW BATCH STARTED ---")
+            DebugLogger.log("UPLOADER", "--- NEW BATCH STARTED (CLOUD) ---")
             DebugLogger.log("UPLOADER", "Files detected: $total")
-            files.forEach { DebugLogger.log("UPLOADER", "Pending: ${it.name} (${it.length() / 1024} KB)") }
-            
-            notifyVoice(context, "Bundling $total images for analysis.", 1)
+            notifyVoice(context, "Bundling $total images for cloud analysis.", 1)
             executeBatchUpload(context, files)
         }.start()
+    }
+
+    fun executeBatchUploadFallback(context: Context, files: List<File>) {
+        if (!isOnline(context)) {
+            notifyVoice(context, "Fallback aborted. Device is offline.", 2)
+            isProcessing = false
+            return
+        }
+
+        Thread {
+            isProcessing = true
+            watchdogHandler.removeCallbacks(watchdogRunnable)
+            watchdogHandler.postDelayed(watchdogRunnable, 180000)
+            DebugLogger.log("UPLOADER", "Executing Supabase Cloud Fallback for ${files.size} images.")
+            executeBatchUpload(context, files)
+        }.start()
+    }
+
+    fun resetProcessingLock() {
+        isProcessing = false
+        watchdogHandler.removeCallbacks(watchdogRunnable)
     }
 
     fun uploadUris(context: Context, uris: List<Uri>) {
