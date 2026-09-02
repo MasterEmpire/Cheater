@@ -205,6 +205,30 @@ fun AppDashboard() {
                         val useOmniEngine = remember { mutableStateOf(prefs.getBoolean("use_omni_engine", true)) }
                         SettingsToggle("Use Omni Engine (Local AI Studio)", useOmniEngine) { prefs.edit().putBoolean("use_omni_engine", it).apply() }
 
+                        val omniPresetTitle = remember { mutableStateOf(prefs.getString("omni_preset_title", "Exam Solver") ?: "Exam Solver") }
+                        if (useOmniEngine.value) {
+                            OutlinedTextField(
+                                value = omniPresetTitle.value,
+                                onValueChange = {
+                                    omniPresetTitle.value = it
+                                    prefs.edit().putString("omni_preset_title", it).apply()
+                                },
+                                label = { Text("Omni Preset Title (matches preset in Omni Chrome)") },
+                                placeholder = { Text("e.g. Exam Solver") },
+                                singleLine = true,
+                                textStyle = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                )
+                            )
+                        }
+
                         val headsetOnly = remember { mutableStateOf(prefs.getBoolean("headset_only", true)) }
                         SettingsToggle("Stealth Audio (Headset Only)", headsetOnly) { prefs.edit().putBoolean("headset_only", it).apply() }
                         
