@@ -317,11 +317,46 @@ object Uploader {
 
     private val activePolls = mutableSetOf<String>()
 
-    fun clearQueue() {
+    fun clearQueue(context: Context? = null) {
         globalSessionVersion++
+        val stalePolls = activePolls.toList()
         activePolls.clear()
         isProcessing = false
+        watchdogHandler.removeCallbacks(watchdogRunnable)
         DebugLogger.log("RESET", "Uploader state reset. New Version: $globalSessionVersion")
+
+        if (context != null) {
+            val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            val activeCloudId = prefs.getString("active_cloud_process_id", null)
+            prefs.edit().remove("active_cloud_process_id").apply()
+
+            val idsToCancel = (stalePolls + listOfNotNull(activeCloudId)).distinct()
+            for (id in idsToCancel) {
+                abortCloudProcess(id)
+            }
+        }
+    }
+
+    private fun abortCloudProcess(processId: String) {
+        Thread {
+            try {
+                DebugLogger.log("CLOUD_ABORT", "🛑 Sending abort signal to Supabase for process: $processId")
+                val json = JSONObject().apply {
+                    put("action", "abort_process")
+                    put("record_id", processId)
+                }
+                val request = Request.Builder()
+                    .url(SUPABASE_URL)
+                    .addHeader("Authorization", "Bearer $SUPABASE_KEY")
+                    .post(json.toString().toRequestBody("application/json".toMediaTypeOrNull()))
+                    .build()
+                client.newCall(request).execute().use { resp ->
+                    DebugLogger.log("CLOUD_ABORT", "Supabase abort response for $processId: ${resp.code}")
+                }
+            } catch (e: Exception) {
+                DebugLogger.log("CLOUD_ABORT_ERR", "Failed to abort cloud process $processId: ${e.message}")
+            }
+        }.start()
     }
 
     fun startPolling(context: Context, id: String) {
@@ -370,6 +405,14 @@ object Uploader {
 
                                 val status = record?.optString("status")
 
+                                if (status == "canceled" || status == "cancelled") {
+                                    DebugLogger.log("POLL", "🛑 Cloud process $id was marked canceled. Halting poll.")
+                                    context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                                        .edit().remove("active_cloud_process_id").apply()
+                                    activePolls.remove(id)
+                                    return
+                                }
+
                                 if (status == "low_quality") {
                                     DebugLogger.log("POLL", "Worker reported LOW QUALITY for $id.")
                                     context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
@@ -391,18 +434,23 @@ object Uploader {
                                 if (status == "completed") {
                                     context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                                         .edit().remove("active_cloud_process_id").apply()
+                                    activePolls.remove(id)
+
+                                    if (localVersion != globalSessionVersion) {
+                                        DebugLogger.log("POLL_STALE", "⚠️ Discarding late completed result for stale session: $id")
+                                        return
+                                    }
+
                                     val solObj = record.opt("solution_json")
                                     val solStr = if (solObj is JSONObject) solObj.toString() else solObj?.toString() ?: ""
                                     
                                     if (solStr.isNotEmpty()) {
-                                        // Extract count for more informative feedback
                                         val count = try { JSONObject(solStr).optJSONArray("solutions")?.length() ?: 0 } catch(e: Exception) { 0 }
                                         notifyVoice(context, "Analysis finished. $count items found. Syncing.")
                                         context.startService(Intent(context, PlaybackService::class.java).apply { 
                                             action = "GENERATE"
                                             putExtra("data", solStr) 
                                         })
-                                        activePolls.remove(id)
                                         return
                                     }
                                 }
