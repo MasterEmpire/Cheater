@@ -11,11 +11,26 @@ serve(async (req) => {
 
   if (req.method === 'OPTIONS') return new Response('ok');
 
-  try {
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-    const payload = await req.json();
+        try {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
+        const payload = await req.json();
 
-    if (payload.action === 'process_staged_images') {
+        if (payload.action === 'abort_process' || payload.action === 'cancel_process') {
+          const recordId = payload.record_id || payload.id;
+          console.log(`[${requestId}] [ABORT] Canceling process ID: ${recordId}`);
+          if (recordId) {
+            const { error: updError } = await supabase
+              .from('processed_images')
+              .update({ status: 'canceled', solution_json: null })
+              .eq('id', recordId);
+            if (updError) throw updError;
+          }
+          return new Response(JSON.stringify({ success: true, message: 'Process canceled' }), {
+            headers: { 'Content-Type': 'application/json' }
+          });
+        }
+
+        if (payload.action === 'process_staged_images') {
       console.log(`[${requestId}] [DISPATCHER] Registering batch: ${payload.paths?.length} images`);
       
       const { data: record, error: insError } = await supabase
