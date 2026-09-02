@@ -78,9 +78,15 @@ object OmniLocalBridge {
                 context.grantUriPermission(OMNI_PACKAGE, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
+            val prefs = context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            val presetTitle = prefs.getString("omni_preset_title", "Exam Solver")?.trim() ?: ""
+
+            DebugLogger.log("OMNI_BRIDGE", "Targeting Omni Vault Preset: '$presetTitle'")
+
             intent.putParcelableArrayListExtra("extra_image_uris", uriList)
             intent.putExtra("extra_reply_action", ACTION_OMNI_RESULT)
             intent.putExtra("extra_status_action", ACTION_OMNI_STATUS)
+            intent.putExtra("extra_preset_title", presetTitle)
             intent.putExtra("extra_request_id", "req_${System.currentTimeMillis()}")
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
