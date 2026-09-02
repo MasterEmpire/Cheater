@@ -1,0 +1,857 @@
+package com.universal.app
+
+import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
+import android.content.Context
+import android.content.Intent
+import android.graphics.Color
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
+
+import android.provider.MediaStore
+import android.view.KeyEvent
+import android.view.View
+import android.view.WindowManager
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import java.io.File
+import java.util.LinkedList
+
+class KeyInterceptService : AccessibilityService() {
+    private val handler = Handler(Looper.getMainLooper())
+    private val windowLock = Any()
+    private var blockerOverlay: View? = null
+    private var lastHeadsetClick = 0L
+    private var gestureSequence = ""
+    private var lastHeadsetDownTime = 0L
+    private val headsetGestureRunnable = Runnable { 
+        processHeadsetGesture(gestureSequence)
+        gestureSequence = ""
+    }
+    private var serviceWakeLock: PowerManager.WakeLock? = null
+    private var lastUpTime = 0L
+    private var upCount = 0
+    private var lastDownTime = 0L
+    private var downCount = 0
+    
+    private val CLICK_GAP = 400L
+
+    private var isVolUpPressed = false
+    private var isVolDownPressed = false
+    private var isWaitingForTapHold = false
+    private var isWaitingForDownTapHold = false
+    private var lastCameraPackage = ""
+    private var isLensSwitchPending = false
+    private var autoCaptureRunnable: Runnable? = null
+    private var isInCameraSession = false
+    private var cameraExitPending = false
+    private val cameraExitHandler = Handler(Looper.getMainLooper())
+    private val cameraExitRunnable = Runnable {
+        val activeRoot = rootInActiveWindow?.packageName?.toString() ?: ""
+        val rootIsCam = activeRoot.contains("camera") || activeRoot.contains("lens")
+        
+        if (!rootIsCam) {
+            DebugLogger.log("AUTO_CAM", "Camera Session Confirmed Ended")
+            isInCameraSession = false
+            
+            val queueDir = File(cacheDir, "pending_uploads")
+            val count = queueDir.listFiles()?.size ?: 0
+            speakPrompt(2)
+
+            lastCameraPackage = ""
+            isLensSwitchPending = false
+            autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+            autoCaptureRunnable = null
+            removeTouchBlocker()
+        }
+        cameraExitPending = false
+    }
+    // isEarphoneNavMode is now centrally managed via SharedPreferences
+    private var isLongPressTriggered = false
+    private var successiveRemaining = 0
+
+    private fun pulse() {
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            v.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            v.vibrate(50)
+        }
+    }
+    
+    private val volDownBatchRunnable = Runnable {
+        isLongPressTriggered = true
+        
+        // EMERGENCY OVERRIDE: Check the physical view existence, not just preferences
+        if (blockerOverlay != null) {
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("touch_blocker", false).commit()
+            removeTouchBlocker()
+            speakPrompt(9)
+            pulse()
+            pulse()
+            return@Runnable
+        }
+
+        // Standard Batch logic if no block active
+        speakPrompt(18)
+        val intent = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { action = "COMMAND_FLUSH_BATCH" }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+    }
+
+    private val volUpLongPressRunnable = Runnable {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val newMode = !prefs.getBoolean("earphone_nav_mode", false)
+        prefs.edit().putBoolean("earphone_nav_mode", newMode).apply()
+        
+        isLongPressTriggered = true
+        val status = if (newMode) "Earphone Navigation Activated" else "Earphone Navigation Deactivated"
+        DebugLogger.log("MODE", status)
+        speakPrompt(if (newMode) 10 else 11)
+        
+        if (newMode) {
+            val intent = Intent(this@KeyInterceptService, PlaybackService::class.java).apply {
+                action = "START_NAV"
+            }
+            startService(intent)
+        }
+    }
+
+    override fun onKeyEvent(event: KeyEvent): Boolean {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val isActive = prefs.getBoolean("is_active", true)
+        val isShieldUp = blockerOverlay != null
+
+        // Absolute first check - if inactive and shield is down, pass through immediately
+        if (!isActive && !isShieldUp) return false
+
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val isScreenOn = pm.isInteractive
+        if (!prefs.getBoolean("keys_enabled", true) && !isShieldUp) return false
+
+        val keyCode = event.keyCode
+        val action = event.action
+        val isLongPress = (event.eventTime - event.downTime) > 600
+
+        // 1. Camera Context & Emergency Logic
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCamOpen = pkg.contains("camera") || pkg.contains("lens")
+
+        // If the shield is UP, we bypass camera logic entirely so emergency volume key holds can function.
+        if (isCamOpen && !isShieldUp && (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            // --- Shutter Trigger (Priority 2) ---
+            if (action == KeyEvent.ACTION_UP) {
+                DebugLogger.log("SHUTTER", "Camera context: Intercepting volume key for capture.")
+                smartShutterClick()
+                return true // Consume the event so the native camera doesn't also fire.
+            }
+
+            // For ACTION_DOWN or other events, pass them through to allow native camera functions like focus.
+            return false
+        }
+
+        // 2. Headset Hijack Logic (Highest Priority)
+        val isHeadsetKey = keyCode == KeyEvent.KEYCODE_HEADSETHOOK || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_NEXT || 
+                          keyCode == KeyEvent.KEYCODE_MEDIA_PREVIOUS
+
+        if (isHeadsetKey) {
+            if (action == KeyEvent.ACTION_DOWN) {
+                if (event.repeatCount == 0) {
+                    lastHeadsetDownTime = event.eventTime
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    val wl = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::KeyHijack")
+                    wl.acquire(500)
+                }
+                return true 
+            }
+            if (action == KeyEvent.ACTION_UP) {
+                val duration = event.eventTime - lastHeadsetDownTime
+                val type = if (duration > 600) "L" else "S"
+                DebugLogger.log("HEADSET_RAW", "Press: ${duration}ms -> Added: $type")
+                handler.removeCallbacks(headsetGestureRunnable)
+                
+                gestureSequence += type
+                
+                handler.postDelayed(headsetGestureRunnable, 450)
+                return true
+            }
+        }
+
+        // 3. Volume Key DOWN Logic
+        if (action == KeyEvent.ACTION_DOWN) {
+            val now = System.currentTimeMillis()
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                isVolUpPressed = true
+                isWaitingForTapHold = (now - lastUpTime < 800)
+            }
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                isVolDownPressed = true
+                isWaitingForDownTapHold = (now - lastDownTime < 800)
+            }
+
+            if (event.repeatCount > 0) return true
+            if (isVolUpPressed && isVolDownPressed) return true
+
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    if (event.repeatCount == 0) {
+                        isLongPressTriggered = false
+                        handler.postDelayed(volUpLongPressRunnable, 5000)
+                    }
+                    val now = System.currentTimeMillis()
+                    if (now - lastUpTime < CLICK_GAP) upCount++ else upCount = 1
+                    lastUpTime = now
+                    return true
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    if (event.repeatCount == 0) {
+                        isLongPressTriggered = false
+                        handler.postDelayed(volDownBatchRunnable, 5000)
+                    }
+                    val now = System.currentTimeMillis()
+                    if (now - lastDownTime < CLICK_GAP) downCount++ else downCount = 1
+                    lastDownTime = now
+                    return true
+                }
+            }
+        }
+
+        // 4. Volume Key UP Logic
+        if (action == KeyEvent.ACTION_UP) {
+            val wasBothPressed = isVolUpPressed && isVolDownPressed
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_UP) isVolUpPressed = false
+            if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) isVolDownPressed = false
+
+            if (wasBothPressed) {
+                val intent = Intent(this, PlaybackService::class.java)
+                intent.action = if (isLongPress) "RESET" else "PAUSE"
+                startService(intent)
+                return true
+            }
+
+
+
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    handler.removeCallbacks(volUpLongPressRunnable)
+                    if (isLongPressTriggered) {
+                        isLongPressTriggered = false
+                        upCount = 0
+                        isWaitingForTapHold = false
+                        return true
+                    }
+                    
+                    val duration = event.eventTime - event.downTime
+                    if (isWaitingForTapHold && duration > 500) {
+                        toggleCamera()
+                        isWaitingForTapHold = false
+                        upCount = 0 
+                        return true 
+                    }
+                    isWaitingForTapHold = false
+                    handlePress("UP", upCount, isLongPress)
+                }
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    handler.removeCallbacks(volDownBatchRunnable)
+                    if (isLongPressTriggered) return true
+                    
+                    val duration = event.eventTime - event.downTime
+                    if (isWaitingForDownTapHold && duration > 500) {
+                        triggerReset()
+                        isWaitingForDownTapHold = false
+                        downCount = 0
+                        return true
+                    }
+                    isWaitingForDownTapHold = false
+                    handlePress("DOWN", downCount, isLongPress)
+                }
+            }
+            return true
+        }
+
+        return super.onKeyEvent(event)
+    }
+
+    private fun toggleCamera() {
+        val root = rootInActiveWindow
+        val currentPackage = root?.packageName?.toString() ?: ""
+        
+        if (currentPackage.contains("camera") || currentPackage.contains("lens") || currentPackage.contains("capture")) {
+            DebugLogger.log("CAM_TOGGLE", "Camera detected active. Closing.")
+            isInCameraSession = false 
+            autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+            autoCaptureRunnable = null
+            
+            val queueDir = File(cacheDir, "pending_uploads")
+            val count = queueDir.listFiles()?.size ?: 0
+            val countText = if (count == 1) "1 image queued" else "$count images queued"
+            speak("Camera closed. $countText.", false)
+
+            removeTouchBlocker()
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        } else {
+            DebugLogger.log("CAM_TOGGLE", "Launching Hardware Camera. Starting Instant-Scan.")
+            speakPrompt(1)
+            
+            isLensSwitchPending = true
+            lastCameraPackage = "" 
+            
+            val intent = Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+
+            // 10-Second Auto-Capture Logic
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("successive_enabled", false)) {
+                autoCaptureRunnable = Runnable {
+                    DebugLogger.log("AUTO", "10s idle reached. Executing automatic shutter.")
+                    smartShutterClick()
+                }
+                handler.postDelayed(autoCaptureRunnable!!, 10000)
+            }
+
+            // Start the search timer IMMEDIATELY
+            handler.postDelayed({ 
+                DebugLogger.log("LENS_FLOW", "Instant-Scan Timer Started")
+                attemptLensSwitch(40) 
+            }, 1000)
+        }
+    }
+
+    private fun showTouchBlocker() {
+        synchronized(windowLock) {
+            if (blockerOverlay != null) return
+            val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val overlay = View(this).apply {
+                setBackgroundColor(Color.TRANSPARENT)
+                setOnTouchListener { _, _ -> true }
+            }
+
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or 
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH,
+                PixelFormat.TRANSLUCENT
+            ).apply {
+                gravity = android.view.Gravity.TOP
+                height = WindowManager.LayoutParams.MATCH_PARENT
+            }
+            
+            try {
+                wm.addView(overlay, params)
+                blockerOverlay = overlay
+                DebugLogger.log("BLOCKER", "Shield Deployed")
+            } catch (e: Exception) {
+                DebugLogger.log("BLOCKER", "Deploy Error: ${e.message}")
+                blockerOverlay = null
+            }
+        }
+    }
+
+    private fun removeTouchBlocker() {
+        synchronized(windowLock) {
+            blockerOverlay?.let {
+                val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+                try { 
+                    wm.removeView(it) 
+                    DebugLogger.log("BLOCKER", "Shield Removed")
+                } catch (e: Exception) {
+                    DebugLogger.log("BLOCKER", "Removal Error: ${e.message}")
+                } finally {
+                    blockerOverlay = null
+                }
+            }
+        }
+    }
+
+    private fun handlePress(key: String, count: Int, isLong: Boolean) {
+        DebugLogger.log("KEY_LOGIC", "Decided: $key (Count: $count, Long: $isLong)")
+        val intent = Intent(this, PlaybackService::class.java)
+        
+        if (key == "UP") {
+            when {
+                isLong -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "wo") }
+                count == 1 -> intent.apply { action = "NEXT" }
+                count == 2 -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "tf") }
+                count == 3 -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "sa") }
+                else -> { /* No action */ }
+            }
+        } else {
+            when {
+                isLong -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "fill") }
+                count == 1 -> intent.apply { action = "PREVIOUS" }
+                count == 2 -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "mc") }
+                count == 3 -> intent.apply { action = "PLAY_TYPE"; putExtra("type", "ma") }
+                else -> { /* No action */ }
+            }
+        }
+        
+        if (intent.action != null) {
+            startService(intent)
+        }
+    }
+
+    private fun prepareWideLens(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        
+        var lensNode: AccessibilityNodeInfo? = null
+        val searchTerms = listOf(".5", "0.5", "0,5", "0.6", "0.5x", "0,5x", "ultra", "wide", "zoom out")
+        val bounds = Rect()
+
+        val queue = LinkedList<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (!queue.isEmpty()) {
+            val node = queue.poll() ?: continue
+            val text = node.text?.toString()?.lowercase() ?: ""
+            val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+            
+            val match = searchTerms.find { (text.contains(it) || desc.contains(it)) && !text.contains("1x") }
+
+            if (match != null) {
+                var current: AccessibilityNodeInfo? = node
+                var depth = 0
+                while (current != null && depth < 6) {
+                    if (current.isClickable) {
+                        lensNode = current
+                        break
+                    }
+                    current = current.parent
+                    depth++
+                }
+                if (lensNode != null) break
+            }
+            for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
+        }
+
+        return if (lensNode != null) {
+            // Try Virtual Click first (Robust Verification)
+            val success = lensNode.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            
+            if (success) {
+                DebugLogger.log("LENS_FLOW", "Virtual click SUCCESS")
+                speakPrompt(4)
+                true
+            } else {
+                // Fallback to Physical Tap for Samsung/Google Camera
+                lensNode.getBoundsInScreen(bounds)
+                val x = bounds.centerX().toFloat()
+                val y = bounds.centerY().toFloat()
+                
+                val clickPath = Path().apply { moveTo(x, y) }
+                val gesture = GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
+                    .build()
+                
+                dispatchGesture(gesture, null, null)
+                DebugLogger.log("LENS_FLOW", "Virtual click REJECTED. Physical tap dispatched to $x, $y")
+                // Return false so the retry loop continues to verify the switch
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    private fun attemptLensSwitch(retries: Int) {
+        if (!isLensSwitchPending) return
+        
+        if (retries <= 0) {
+            DebugLogger.log("LENS_FLOW", "Search timed out. Applying fallback coordinates.")
+            clickLensCoordinatesFallback()
+            isLensSwitchPending = false
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+            return
+        }
+
+        handler.postDelayed({
+            if (!isLensSwitchPending) return@postDelayed
+            
+            val success = prepareWideLens()
+            if (success) {
+                DebugLogger.log("LENS_FLOW", "Lens switch CONFIRMED.")
+                isLensSwitchPending = false
+                val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                if (prefs.getBoolean("touch_blocker", false)) showTouchBlocker()
+            } else {
+                attemptLensSwitch(retries - 1)
+            }
+        }, 500)
+    }
+
+    private fun clickLensCoordinatesFallback() {
+        val metrics = resources.displayMetrics
+        // Standard ultra-wide button is usually centered but slightly above the shutter
+        val x = metrics.widthPixels / 2f
+        val y = metrics.heightPixels * 0.70f 
+
+        val clickPath = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
+            .build()
+        dispatchGesture(gesture, null, null)
+    }
+
+    private fun performPinchFallback() {
+        val metrics = resources.displayMetrics
+        val centerX = metrics.widthPixels / 2f
+        val centerY = metrics.heightPixels / 2f
+        val path1 = android.graphics.Path().apply { moveTo(100f, 100f); lineTo(centerX - 50, centerY - 50) }
+        val path2 = android.graphics.Path().apply { moveTo(metrics.widthPixels - 100f, 100f); lineTo(centerX + 50, centerY - 50) }
+        val stroke1 = GestureDescription.StrokeDescription(path1, 0, 500)
+        val stroke2 = GestureDescription.StrokeDescription(path2, 0, 500)
+        val gesture = GestureDescription.Builder().addStroke(stroke1).addStroke(stroke2).build()
+        
+        dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) = DebugLogger.log("GESTURE", "Pinch SUCCESS")
+            override fun onCancelled(gestureDescription: GestureDescription) = DebugLogger.log("GESTURE", "Pinch FAILED")
+        }, null)
+    }
+
+    private fun smartShutterClick() {
+        // Cancel any pending auto-shutter if manual shutter or auto-loop is triggered
+        autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+        autoCaptureRunnable = null
+
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCamera = pkg.contains("camera") || pkg.contains("lens")
+
+        if (!isCamera) {
+            DebugLogger.log("SHUTTER", "Blocked: Camera not in foreground ($pkg)")
+            // Only speak if this wasn't an automatic attempt
+            if (successiveRemaining == 0)             speakPrompt(3)
+            return
+        }
+
+        // --- Successive Capture Logic ---
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val isSuccessive = prefs.getBoolean("successive_enabled", false)
+        if (isSuccessive && successiveRemaining == 0) {
+            successiveRemaining = prefs.getInt("successive_count", 3) - 1
+            triggerSuccessiveLoop()
+        }
+
+        var foundNode: AccessibilityNodeInfo? = null
+        if (root != null) {
+            val targets = listOf("shutter", "take picture", "capture", "camera_shutter", "bottom_bar_shutter")
+            val queue = LinkedList<AccessibilityNodeInfo>()
+            queue.add(root)
+            
+            while (!queue.isEmpty()) {
+                val node = queue.poll() ?: continue
+                val id = node.viewIdResourceName?.lowercase() ?: ""
+                val desc = node.contentDescription?.toString()?.lowercase() ?: ""
+                
+                if (targets.any { id.contains(it) || desc.contains(it) } && node.isClickable) {
+                    foundNode = node
+                    break
+                }
+                for (i in 0 until node.childCount) { node.getChild(i)?.let { queue.add(it) } }
+            }
+        }
+
+        pulse()
+        if (foundNode != null) {
+            DebugLogger.log("AUTO", "Smart Shutter Active")
+            if (successiveRemaining <= 0) speakPrompt(5)
+            foundNode.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+        } else {
+            DebugLogger.log("AUTO", "Shutter Node Missing")
+            if (successiveRemaining <= 0) speakPrompt(6)
+            clickShutterCoordinates()
+        }
+    }
+
+    private fun triggerSuccessiveLoop() {
+        if (successiveRemaining > 0) {
+            handler.postDelayed({ 
+                DebugLogger.log("AUTO", "Successive Capture: $successiveRemaining left")
+                smartShutterClick()
+                successiveRemaining--
+                triggerSuccessiveLoop()
+            }, 2000)
+        } else {
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            val total = prefs.getInt("successive_count", 3)
+            DebugLogger.log("AUTO", "Batch complete. Closing camera automatically.")
+            
+            // Direct Speech Notification for programmatic auto-close
+            val queueDir = File(cacheDir, "pending_uploads")
+            val count = queueDir.listFiles()?.size ?: 0
+            val countText = if (count == 1) "1 image queued" else "$count images queued"
+            speak("Camera closed. $countText.", false)
+
+            // Auto-close sequence: Return to home and clear session states
+            isInCameraSession = false // Set false BEFORE home action to prevent redundant event trigger
+            performGlobalAction(GLOBAL_ACTION_HOME)
+            removeTouchBlocker()
+            autoCaptureRunnable?.let { handler.removeCallbacks(it) }
+            autoCaptureRunnable = null
+        }
+    }
+
+
+    private fun clickShutterCoordinates() {
+        val metrics = resources.displayMetrics
+        val x = metrics.widthPixels / 2f
+        // Adjusted: 1941/2400 is approx 80%. Using 82% as a safer middle ground for various models.
+        val y = metrics.heightPixels * 0.82f
+
+        DebugLogger.log("COORD_CLICK", "Targeting fallback coordinates: $x, $y")
+        val clickPath = Path().apply { moveTo(x, y) }
+        val gesture = GestureDescription.Builder()
+            .addStroke(GestureDescription.StrokeDescription(clickPath, 0, 50))
+            .build()
+
+        dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+            override fun onCompleted(gestureDescription: GestureDescription) {
+                DebugLogger.log("COORD_CLICK", "Point Click SUCCESS at $x, $y")
+            }
+            override fun onCancelled(gestureDescription: GestureDescription) {
+                DebugLogger.log("COORD_CLICK", "Point Click FAILED at $x, $y")
+            }
+        }, null)
+    }
+
+    private fun triggerReset() {
+        speakPrompt(13)
+        val intent = Intent(this, PlaybackService::class.java)
+        intent.action = "RESET"
+        startService(intent)
+    }
+
+    private fun speakPrompt(promptNumber: Int) {
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = "PLAY_PROMPT"
+            putExtra("prompt_num", promptNumber)
+        }
+        startService(intent)
+    }
+
+    private fun speak(msg: String, immediate: Boolean = false) {
+        val intent = Intent(this, PlaybackService::class.java).apply {
+            action = "SPEAK_STATUS"
+            putExtra("message", msg)
+            putExtra("immediate", immediate)
+        }
+        startService(intent)
+    }
+
+    private fun wakeDevice(pm: PowerManager) {
+        DebugLogger.log("WAKE", "Triggering WakeActivity from Key Service")
+        val intent = Intent(this, WakeActivity::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+
+    private fun processHeadsetGesture(sequence: String) {
+        if (sequence.isEmpty()) return
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val isNavMode = prefs.getBoolean("earphone_nav_mode", false)
+        
+        DebugLogger.log("HEADSET_SIG", "Evaluating sequence: '$sequence' | NavMode: $isNavMode")
+        val intent = Intent(this, PlaybackService::class.java)
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        
+        val root = rootInActiveWindow
+        val pkg = root?.packageName?.toString() ?: ""
+        val isCam = pkg.contains("camera") || pkg.contains("lens")
+
+        // --- GLOBAL PRIORITY COMMANDS ---
+
+        // 1. Wake (Screen Off + Single Click)
+        if (!pm.isInteractive && sequence == "S") {
+            wakeDevice(pm)
+            return
+        }
+
+        // 2. Global Lock (Triple Click ALWAYS locks screen)
+        if (sequence == "SSS") {
+            DebugLogger.log("HEADSET", "Global Lock Triggered")
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                performGlobalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
+            } else {
+                speakPrompt(12)
+            }
+            return
+        }
+
+        // 3. Global Reset (Long-Short ALWAYS clears session)
+        if (sequence == "LS") {
+            DebugLogger.log("HEADSET", "Global Session Reset Triggered")
+            val resetIntent = Intent(this, PlaybackService::class.java).apply { action = "RESET" }
+            startService(resetIntent)
+            return
+        }
+
+        // 4. Camera Shutter Priority
+        if (isCam && sequence == "S") {
+            DebugLogger.log("HEADSET", "Camera detected: Overriding 'S' to Shutter")
+            smartShutterClick()
+            return
+        }
+
+        // --- MODE SPECIFIC COMMANDS ---
+
+        if (isNavMode) {
+            when (sequence) {
+                "S" -> intent.action = "PAUSE"
+                "SS" -> intent.action = "NEXT"
+                "L" -> intent.action = "NEXT_CATEGORY"
+                "SL" -> {
+                    DebugLogger.log("HEADSET", "Nav Mode: Triggering SL Camera Toggle")
+                    toggleCamera()
+                    return
+                }
+                else -> {
+                   if (sequence.contains("L")) intent.action = "NEXT_CATEGORY"
+                   else intent.action = "NEXT"
+                }
+            }
+            if (intent.action != null) startService(intent)
+        } else {
+            when (sequence) {
+                "S" -> {
+                    val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+                    val hasData = !prefs.getString("last_type", null).isNullOrEmpty()
+                    if (hasData && !isCam) {
+                        val intentPause = Intent(this@KeyInterceptService, PlaybackService::class.java).apply { action = "PAUSE" }
+                        startService(intentPause)
+                    } else {
+                        smartShutterClick()
+                    }
+                }
+                "SS" -> toggleCamera()
+                "L" -> {
+                    speakPrompt(18)
+                    val intentBatch = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { 
+                        action = "COMMAND_FLUSH_BATCH" 
+                    }
+                    startService(intentBatch)
+                }
+                else -> speak("$sequence detected", true)
+            }
+        }
+        
+        DebugLogger.log("HEADSET_NAV", "Mode: $isNavMode, Seq: $sequence")
+    }
+
+    private fun logUiHierarchy() {
+        val root = rootInActiveWindow ?: return
+        DebugLogger.log("UI_DUMP", "--- Camera UI Start ---")
+        recursiveLog(root, 0)
+        DebugLogger.log("UI_DUMP", "--- Camera UI End ---")
+    }
+
+    private fun recursiveLog(node: AccessibilityNodeInfo, depth: Int) {
+        if (depth > 15) return
+        val sb = StringBuilder()
+        repeat(depth) { sb.append(".") }
+        
+        val text = node.text?.toString() ?: ""
+        val desc = node.contentDescription?.toString() ?: ""
+        val id = node.viewIdResourceName ?: ""
+        val bounds = Rect()
+        node.getBoundsInScreen(bounds)
+
+        sb.append("[").append(node.className?.toString()?.split(".")?.last() ?: "Unknown").append("] ")
+        if (text.isNotEmpty()) sb.append("T:$text ")
+        if (desc.isNotEmpty()) sb.append("D:$desc ")
+        if (id.isNotEmpty()) sb.append("ID:$id ")
+        sb.append("B:(${bounds.left},${bounds.top})")
+        
+        if (node.isClickable || text.contains("0") || desc.contains("0")) {
+             DebugLogger.log("UI_TRACE", sb.toString())
+        }
+        
+        for (i in 0 until node.childCount) {
+            node.getChild(i)?.let { recursiveLog(it, depth + 1) }
+        }
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+        val isActive = prefs.getBoolean("is_active", true)
+        val shouldBlock = prefs.getBoolean("touch_blocker", false)
+
+        // 1. Enforce Global Blocker Policy securely
+        if (isActive && shouldBlock && blockerOverlay == null) {
+            showTouchBlocker()
+        } else if ((!isActive || !shouldBlock) && blockerOverlay != null) {
+            removeTouchBlocker()
+        }
+
+        val type = event?.eventType
+        val pkg = event?.packageName?.toString() ?: ""
+        val isCam = pkg.contains("camera") || pkg.contains("lens")
+
+        if (isCam) {
+            // Cancel any pending exit if the camera is back in focus
+            if (cameraExitPending) {
+                cameraExitHandler.removeCallbacks(cameraExitRunnable)
+                cameraExitPending = false
+                DebugLogger.log("AUTO_CAM", "Exit cancelled: Camera returned to focus")
+            }
+
+            isInCameraSession = true
+            if (!prefs.getBoolean("is_active", true)) return
+
+            if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+               (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED && isLensSwitchPending)) {
+                if (lastCameraPackage != pkg || !isLensSwitchPending) {
+                    lastCameraPackage = pkg
+                    isLensSwitchPending = true
+                    DebugLogger.log("AUTO_CAM", "Camera Session Initiated: $pkg")
+                    attemptLensSwitch(25)
+                }
+            }
+        } else if (type == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED && isInCameraSession) {
+            // Instead of closing immediately, schedule a check
+            if (!cameraExitPending) {
+                cameraExitPending = true
+                DebugLogger.log("AUTO_CAM", "Camera lost focus. Scheduling exit check...")
+                cameraExitHandler.postDelayed(cameraExitRunnable, 1500)
+            }
+        }
+    }
+    private val headsetReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "com.universal.app.HEADSET_TRIGGER_SHUTTER") {
+                smartShutterClick()
+            }
+        }
+    }
+
+    override fun onServiceConnected() {
+        DebugLogger.init(applicationContext)
+        super.onServiceConnected()
+        val filter = android.content.IntentFilter("com.universal.app.HEADSET_TRIGGER_SHUTTER")
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(headsetReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(headsetReceiver, filter)
+        }
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        serviceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "UniversalApp::ServiceKeepAlive")
+        serviceWakeLock?.acquire()
+    }
+
+    override fun onInterrupt() { 
+        serviceWakeLock?.release()
+        removeTouchBlocker() 
+    }
+}
