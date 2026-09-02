@@ -21,6 +21,7 @@ object OmniLocalBridge {
     const val OMNI_SOLVE_SERVICE = "com.omni.hub.services.OmniSolveService"
 
     const val ACTION_SOLVE_REQUEST = "com.omni.hub.action.SOLVE_EXAM"
+    const val ACTION_ABORT_SOLVE = "com.omni.hub.action.ABORT_SOLVE"
     const val ACTION_OMNI_RESULT = "com.universal.app.ACTION_OMNI_RESULT"
     const val ACTION_OMNI_STATUS = "com.universal.app.ACTION_OMNI_STATUS"
 
@@ -299,6 +300,25 @@ object OmniLocalBridge {
             }
             receiverRegistered = true
         }
+    }
+
+    fun abort(context: Context) {
+        DebugLogger.log("OMNI_BRIDGE", "🛑 Sending ABORT signal to Omni Hub...")
+        cancelTimeout()
+        try {
+            val abortIntent = Intent(ACTION_ABORT_SOLVE).apply {
+                component = ComponentName(OMNI_PACKAGE, OMNI_SOLVE_SERVICE)
+                flags = Intent.FLAG_INCLUDE_STOPPED_PACKAGES
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(abortIntent)
+            } else {
+                context.startService(abortIntent)
+            }
+        } catch (e: Exception) {
+            DebugLogger.log("OMNI_BRIDGE_ERR", "Failed to dispatch abort signal: ${e.message}")
+        }
+        cleanup(context)
     }
 
     fun cleanup(context: Context) {
