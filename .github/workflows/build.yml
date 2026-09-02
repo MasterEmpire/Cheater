@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Universal App Release APK
 
 on: 
   workflow_dispatch:
@@ -7,7 +7,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
@@ -19,15 +19,31 @@ jobs:
       - name: Setup Gradle & Cache
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Generate Deterministic Keystore
+      - name: Build Release APK
+        run: gradle assembleRelease
+
+      - name: Sign APK
         run: |
-          keytool -genkey -v -keystore app/persistent.keystore -alias appkey -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=Universal, OU=App, O=Universal, L=World, ST=World, C=US"
+          # 1. Decode Shared Keystore
+          echo "${{ secrets.SIGNING_KEY }}" | base64 -di > app/release.jks
+          
+          # 2. Locate SDK Tools
+          BUILD_TOOLS_DIR=$(ls -d ${ANDROID_SDK_ROOT}/build-tools/34.* | head -1)
+          
+          # 3. Zipalign
+          UNSIGNED_APK=$(find app/build/outputs/apk/release -name "*release-unsigned.apk" -o -name "*release.apk" | head -1)
+          $BUILD_TOOLS_DIR/zipalign -v 4 "$UNSIGNED_APK" app/build/outputs/apk/release/universal-app-aligned.apk
 
-      - name: Build APK
-        run: gradle assembleDebug
+          # 4. Sign with Shared Identity
+          $BUILD_TOOLS_DIR/apksigner sign --ks app/release.jks \
+            --ks-pass pass:"${{ secrets.KEY_STORE_PASSWORD }}" \
+            --ks-key-alias "${{ secrets.ALIAS }}" \
+            --key-pass pass:"${{ secrets.KEY_PASSWORD }}" \
+            --out app/build/outputs/apk/release/universal-app-release.apk \
+            app/build/outputs/apk/release/universal-app-aligned.apk
 
-      - name: Upload APK
+      - name: Upload Signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: universal-app-release
+          path: app/build/outputs/apk/release/universal-app-release.apk
