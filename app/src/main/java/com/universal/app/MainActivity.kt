@@ -202,6 +202,9 @@ fun AppDashboard() {
                                 )
                             }
                         }
+                        val useOmniEngine = remember { mutableStateOf(prefs.getBoolean("use_omni_engine", true)) }
+                        SettingsToggle("Use Omni Engine (Local AI Studio)", useOmniEngine) { prefs.edit().putBoolean("use_omni_engine", it).apply() }
+
                         val headsetOnly = remember { mutableStateOf(prefs.getBoolean("headset_only", true)) }
                         SettingsToggle("Stealth Audio (Headset Only)", headsetOnly) { prefs.edit().putBoolean("headset_only", it).apply() }
                         
