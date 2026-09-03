@@ -31,9 +31,15 @@ object OmniLocalBridge {
     private var receiverRegistered = false
     private var timeoutRunnable: Runnable? = null
     private const val DEAD_MAN_TIMEOUT_MS = 120000L // 2 minutes of pure silence triggers fail-safe
+    @Volatile
+    private var isAborted = false
 
     private val omniReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent?) {
+            if (isAborted) {
+                DebugLogger.log("IPC_RECV", "🛑 Dropped broadcast because session was ABORTED.")
+                return
+            }
             val action = intent?.action ?: "UNKNOWN"
             val keys = intent?.extras?.keySet()?.joinToString(", ") ?: "none"
             DebugLogger.log("IPC_RECV", "📥 Broadcast received: action=$action | keys=[$keys]")
@@ -171,6 +177,7 @@ object OmniLocalBridge {
     }
 
     fun execute(context: Context, files: List<File>) {
+        isAborted = false
         currentRetryCount = 0
         pendingFiles = files
         registerReceiver(context)
@@ -308,7 +315,9 @@ object OmniLocalBridge {
 
     fun abort(context: Context) {
         DebugLogger.log("OMNI_BRIDGE", "🛑 Sending ABORT signal to Omni Hub...")
+        isAborted = true
         cancelTimeout()
+        handler.removeCallbacksAndMessages(null)
         try {
             val abortIntent = Intent(ACTION_ABORT_SOLVE).apply {
                 component = ComponentName(OMNI_PACKAGE, OMNI_SOLVE_SERVICE)
@@ -326,7 +335,11 @@ object OmniLocalBridge {
     }
 
     fun cleanup(context: Context) {
+        isAborted = true
         cancelTimeout()
+        handler.removeCallbacksAndMessages(null)
+        currentRetryCount = 0
+        pendingFiles = emptyList()
         if (receiverRegistered) {
             try {
                 DebugLogger.log("IPC_UNREG", "Unregistering dynamic BroadcastReceiver")
