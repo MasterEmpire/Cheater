@@ -170,7 +170,7 @@ object OmniLocalBridge {
         DebugLogger.log("DIAG_END", "Audit Result: ${if (passed) "✅ ALL CHECKS PASSED" else "❌ BRIDGE ISSUES DETECTED"}")
         DebugLogger.log("DIAG_END", "========================================")
 
-        val speakResult = if (passed) "Omni bridge diagnostic passed. Certificates match." else "Omni bridge issues detected. Check trace."
+        val speakResult = if (passed) "Omni bridge connected and verified." else "Omni bridge error. Check trace."
         notifyVoice(context, speakResult, priority = 1)
 
         return passed
@@ -201,7 +201,7 @@ object OmniLocalBridge {
             return
         }
 
-        notifyVoice(context, "Initiating Google AI Studio via Omni Hub ($attemptLabel)", priority = 1)
+        notifyVoice(context, "Starting Omni. $attemptLabel.", priority = 1)
 
         try {
             val uriList = ArrayList<Uri>()
@@ -255,7 +255,7 @@ object OmniLocalBridge {
         if (cleanJson != null) {
             val count = try { org.json.JSONObject(cleanJson).optJSONArray("solutions")?.length() ?: 0 } catch (_: Exception) { 0 }
             DebugLogger.log("OMNI_PARSER", "✅ Successfully parsed & deduplicated $count solutions")
-            notifyVoice(context, "Local AI Studio analysis complete. $count solutions ready.", priority = 1)
+            notifyVoice(context, "Omni complete. $count solutions ready.", priority = 1)
 
             context.startService(Intent(context, PlaybackService::class.java).apply {
                 action = "GENERATE"
@@ -272,11 +272,11 @@ object OmniLocalBridge {
         DebugLogger.log("OMNI_BRIDGE_FAIL", "❌ Local Omni attempt $currentRetryCount failed: $error")
 
         if (currentRetryCount < MAX_LOCAL_RETRIES) {
-            notifyVoice(context, "Local Omni attempt failed ($error). Retrying...", priority = 1)
+            notifyVoice(context, "Omni attempt failed. Retrying...", priority = 1)
             handler.postDelayed({ dispatchAttempt(context) }, 2500)
         } else {
             DebugLogger.log("OMNI_FALLBACK", "⚠️ Omni Hub failed 3 consecutive times. Falling back to Supabase cloud backend.")
-            notifyVoice(context, "Local engine failed 3 times. Seamlessly falling back to cloud.", priority = 2)
+            notifyVoice(context, "Omni failed 3 times. Switching to cloud solver.", priority = 2)
             cleanup(context)
             Uploader.executeBatchUploadFallback(context, pendingFiles)
         }
