@@ -76,7 +76,7 @@ object Uploader {
             val total = files.size
             DebugLogger.log("UPLOADER", "--- NEW BATCH STARTED (CLOUD) ---")
             DebugLogger.log("UPLOADER", "Files detected: $total")
-            notifyVoice(context, "Bundling $total images for cloud analysis.", 1)
+            notifyVoice(context, "Packaging $total images for cloud.", 1)
             executeBatchUpload(context, files)
         }.start()
     }
@@ -298,7 +298,7 @@ object Uploader {
                     context.getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
                         .edit().putString("active_cloud_process_id", id).apply()
                     
-                    notifyVoice(context, "Staging complete. AI analyzing.", 1)
+                    notifyVoice(context, "Upload complete. Cloud solver analyzing.", 1)
                     startPolling(context, id)
                 } else {
                     DebugLogger.log("CLOUD_ERR", "Edge Function Error (Code: $code): $bodyStr")
@@ -375,7 +375,7 @@ object Uploader {
                 
                 // Heartbeat: Use priority 0 (Low) to ensure we don't interrupt active speech
                 if (attempts > 0 && attempts % 5 == 0) {
-                    notifyVoice(context, "AI still processing.", 0)
+                    notifyVoice(context, "Cloud solver still working.", 0)
                 }
 
                 if (attempts > 100) {
@@ -446,7 +446,7 @@ object Uploader {
                                     
                                     if (solStr.isNotEmpty()) {
                                         val count = try { JSONObject(solStr).optJSONArray("solutions")?.length() ?: 0 } catch(e: Exception) { 0 }
-                                        notifyVoice(context, "Analysis finished. $count items found. Syncing.")
+                                        notifyVoice(context, "Cloud solver finished. $count solutions ready.")
                                         context.startService(Intent(context, PlaybackService::class.java).apply { 
                                             action = "GENERATE"
                                             putExtra("data", solStr) 
