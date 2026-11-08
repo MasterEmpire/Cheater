@@ -63,11 +63,7 @@ class ImageMonitorService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         DebugLogger.init(applicationContext)
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("is_active", true)) {
-            stopSelf()
-            return START_NOT_STICKY
-        }
-
+        
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("System Guardian Active")
@@ -76,10 +72,18 @@ class ImageMonitorService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
         
+        // MANDATORY: Always fulfill the startForeground OS contract immediately, regardless of active state
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(1, notification)
+        }
+
+        // Now that the OS is satisfied, we can safely shut down if the user toggled the app off
+        if (!prefs.getBoolean("is_active", true)) {
+            stopForeground(true)
+            stopSelf()
+            return START_NOT_STICKY
         }
 
         if (intent?.action == "COMMAND_FLUSH_BATCH") {
