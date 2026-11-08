@@ -111,7 +111,7 @@ class KeyInterceptService : AccessibilityService() {
         // Standard Batch logic if no block active
         speak("Initiating batch upload", true)
         val intent = Intent(this@KeyInterceptService, ImageMonitorService::class.java).apply { action = "COMMAND_FLUSH_BATCH" }
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+        startService(intent) // ImageMonitorService is already foreground, startService is safer and bypasses 5s strict rules
     }
 
     private val volUpLongPressRunnable = Runnable {
