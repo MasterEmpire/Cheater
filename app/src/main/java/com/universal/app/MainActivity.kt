@@ -75,9 +75,15 @@ fun AppDashboard() {
     var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var hasAccessibility by remember { mutableStateOf(isAccessibilityEnabled(context)) }
     var hasCallRole by remember { mutableStateOf(checkCallScreeningRole(context)) }
+    var hasContactsPermission by remember { 
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) 
+    }
 
     val roleLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         hasCallRole = checkCallScreeningRole(context)
+    }
+    val contactsLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        hasContactsPermission = isGranted
     }
     
     var isSystemActive by remember { mutableStateOf(prefs.getBoolean("is_active", true)) }
@@ -101,6 +107,7 @@ fun AppDashboard() {
                 hasOverlay = Settings.canDrawOverlays(context)
                 hasAccessibility = isAccessibilityEnabled(context)
                 hasCallRole = checkCallScreeningRole(context)
+                hasContactsPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED
                 hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                 } else true
@@ -147,7 +154,7 @@ fun AppDashboard() {
             item {
                 Text("SYSTEM HEALTH", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.height(8.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     PermissionChip("Files", hasPermission, Modifier.weight(1f)) {
                         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
@@ -163,10 +170,16 @@ fun AppDashboard() {
                     PermissionChip("Access", hasAccessibility, Modifier.weight(1f)) {
                         context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     }
+                }
+                Spacer(Modifier.height(4.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     PermissionChip("Alerts", hasNotificationPermission, Modifier.weight(1f)) {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             launcher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
                         }
+                    }
+                    PermissionChip("Contacts", hasContactsPermission, Modifier.weight(1f)) {
+                        contactsLauncher.launch(Manifest.permission.READ_CONTACTS)
                     }
                     PermissionChip("Calls", hasCallRole, Modifier.weight(1f)) {
                         requestCallScreeningRole(context, roleLauncher)
@@ -196,8 +209,13 @@ fun AppDashboard() {
                         val blockCalls = remember { mutableStateOf(prefs.getBoolean("block_calls", false)) }
                         SettingsToggle("Block Incoming Calls (Phantom Shield)", blockCalls) { enabled ->
                             prefs.edit().putBoolean("block_calls", enabled).apply()
-                            if (enabled && !hasCallRole) {
-                                requestCallScreeningRole(context, roleLauncher)
+                            if (enabled) {
+                                if (!hasContactsPermission) {
+                                    contactsLauncher.launch(Manifest.permission.READ_CONTACTS)
+                                }
+                                if (!hasCallRole) {
+                                    requestCallScreeningRole(context, roleLauncher)
+                                }
                             }
                         }
 
