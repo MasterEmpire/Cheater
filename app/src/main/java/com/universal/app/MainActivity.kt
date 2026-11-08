@@ -219,6 +219,9 @@ fun AppDashboard() {
                             }
                         }
 
+                        val announceNetwork = remember { mutableStateOf(prefs.getBoolean("announce_network", true)) }
+                        SettingsToggle("Announce Network Shifts (4G/3G/2G)", announceNetwork) { prefs.edit().putBoolean("announce_network", it).apply() }
+
                         val minVolume = remember { mutableStateOf(prefs.getBoolean("min_volume_floor", true)) }
                         SettingsToggle("Enforce 50% Earphone Volume Floor", minVolume) { enabled ->
                             prefs.edit().putBoolean("min_volume_floor", enabled).apply()
