@@ -27,12 +27,12 @@ class UniversalApp : Application() {
                     crashFile.writeText(dumpText)
                 } catch (ignored: Throwable) {}
 
-                // 2. Write to accessible external storage (Android/data/com.universal.app/files/)
+                // 2. Write to public Downloads directory to bypass Scoped Storage blindness
                 try {
-                    val extDir = getExternalFilesDir(null)
-                    if (extDir != null) {
-                        val extCrashFile = File(extDir, "crash_dump.txt")
-                        extCrashFile.writeText(dumpText)
+                    val publicDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
+                    if (publicDir != null && publicDir.exists()) {
+                        val extCrashFile = File(publicDir, "UniversalApp_CrashDump.txt")
+                        extCrashFile.appendText(dumpText + "\n")
                     }
                 } catch (ignored: Throwable) {}
 
