@@ -674,7 +674,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun playCurrent() {
-        val list = playlists[currentType] ?: return
+        val list = playlists[currentType]
+        if (list.isNullOrEmpty()) {
+            DebugLogger.log("MEDIA", "Playback bypassed: playlist is empty for $currentType")
+            return
+        }
         if (currentIndex < 0 || currentIndex >= list.size) currentIndex = 0
         val file = list[currentIndex]
 
