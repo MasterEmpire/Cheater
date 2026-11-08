@@ -24,22 +24,30 @@ class CallBlockerService : CallScreeningService() {
 
             DebugLogger.log("CALL_SHIELD", "Incoming call intercepted. Silently rejecting.")
 
-            val response = CallResponse.Builder()
+            val responseBuilder = CallResponse.Builder()
                 .setDisallowCall(true)
                 .setRejectCall(true)
                 .setSkipNotification(true)
                 .setSkipCallLog(false)
-                .build()
 
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                responseBuilder.setSilenceCall(true)
+            }
+
+            val response = responseBuilder.build()
             respondToCall(callDetails, response)
             DebugLogger.log("CALL_SHIELD", "Call rejected. Kept in call log.")
 
-            val intent = Intent(this, PlaybackService::class.java).apply {
-                action = "SPEAK_STATUS"
-                putExtra("message", "Call blocked.")
-                putExtra("priority", 1)
+            try {
+                val intent = Intent(this, PlaybackService::class.java).apply {
+                    action = "SPEAK_STATUS"
+                    putExtra("message", "Call blocked.")
+                    putExtra("priority", 1)
+                }
+                startService(intent)
+            } catch (e: Exception) {
+                DebugLogger.log("CALL_SHIELD", "Could not dispatch voice alert: ${e.message}")
             }
-            startService(intent)
         } else {
             respondToCall(callDetails, CallResponse.Builder().build())
         }
