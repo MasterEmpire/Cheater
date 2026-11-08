@@ -192,7 +192,7 @@ fun AppDashboard() {
                 ElevatedCard(modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         val keysEnabled = remember { mutableStateOf(prefs.getBoolean("keys_enabled", true)) }
-                        val headsetTrigger = remember { mutableStateOf(prefs.getBoolean("headset_trigger", false)) }
+                        val headsetTrigger = remember { mutableStateOf(prefs.getBoolean("headset_trigger", true)) }
                         val touchBlocker = remember { mutableStateOf(prefs.getBoolean("touch_blocker", false)) }
 
                         SettingsToggle("Intercept Media Keys", keysEnabled) { prefs.edit().putBoolean("keys_enabled", it).apply() }
@@ -206,7 +206,7 @@ fun AppDashboard() {
                             }
                         }
 
-                        val blockCalls = remember { mutableStateOf(prefs.getBoolean("block_calls", false)) }
+                        val blockCalls = remember { mutableStateOf(prefs.getBoolean("block_calls", true)) }
                         SettingsToggle("Block Incoming Calls (Phantom Shield)", blockCalls) { enabled ->
                             prefs.edit().putBoolean("block_calls", enabled).apply()
                             if (enabled) {
@@ -232,8 +232,8 @@ fun AppDashboard() {
                             }
                         }
                         
-                        val successiveEnabled = remember { mutableStateOf(prefs.getBoolean("successive_enabled", false)) }
-                        val successiveCount = remember { mutableStateOf(prefs.getInt("successive_count", 3)) }
+                        val successiveEnabled = remember { mutableStateOf(prefs.getBoolean("successive_enabled", true)) }
+                        val successiveCount = remember { mutableStateOf(prefs.getInt("successive_count", 6)) }
                         
                         SettingsToggle("Successive Capture", successiveEnabled) { prefs.edit().putBoolean("successive_enabled", it).apply() }
                         if (successiveEnabled.value) {
