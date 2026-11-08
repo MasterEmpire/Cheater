@@ -109,7 +109,11 @@ class PlaybackService : Service(), TextToSpeech.OnInitListener {
             addAction(Intent.ACTION_HEADSET_PLUG)
             addAction(android.bluetooth.BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
         }
-        registerReceiver(audioSafetyReceiver, safetyFilter)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(audioSafetyReceiver, safetyFilter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(audioSafetyReceiver, safetyFilter)
+        }
     }
 
     override fun onInit(status: Int) {
