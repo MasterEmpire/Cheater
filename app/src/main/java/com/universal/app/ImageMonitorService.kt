@@ -33,11 +33,15 @@ class ImageMonitorService : Service() {
             }
             if (prefs.getBoolean("is_active", true)) {
                 // Ensure PlaybackService is still alive (The 'Poke')
-                val intent = Intent(applicationContext, PlaybackService::class.java)
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                    startForegroundService(intent)
-                } else {
-                    startService(intent)
+                try {
+                    val intent = Intent(applicationContext, PlaybackService::class.java)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(intent)
+                    } else {
+                        startService(intent)
+                    }
+                } catch (e: Exception) {
+                    DebugLogger.log("WATCHDOG_ERR", "Cannot poke PlaybackService: ${e.message}")
                 }
             }
             watchdogHandler.postDelayed(this, 120000) // 2-minute heartbeat
@@ -63,10 +67,6 @@ class ImageMonitorService : Service() {
             return START_NOT_STICKY
         }
 
-        if (intent?.action == "COMMAND_FLUSH_BATCH") {
-            flushQueue()
-            return START_STICKY
-        }
         createNotificationChannel()
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("System Guardian Active")
@@ -79,6 +79,11 @@ class ImageMonitorService : Service() {
             startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             startForeground(1, notification)
+        }
+
+        if (intent?.action == "COMMAND_FLUSH_BATCH") {
+            flushQueue()
+            return START_STICKY
         }
 
         watchdogHandler.removeCallbacks(watchdogRunnable)
