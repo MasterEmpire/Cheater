@@ -8,7 +8,11 @@ import android.net.Uri
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.Build
 import android.provider.MediaStore
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyDisplayInfo
+import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -90,6 +94,7 @@ class ImageMonitorService : Service() {
         watchdogHandler.postDelayed(watchdogRunnable, 60000)
         
         startMonitoring()
+        startNetworkWatcher()
         recoveryScan()
         return START_STICKY
     }
@@ -266,6 +271,107 @@ class ImageMonitorService : Service() {
     }
 
 
+
+    private var lastNetworkGen: String? = null
+    private var lastGenChangeTime = 0L
+    private var telephonyCallback: Any? = null
+
+    private fun startNetworkWatcher() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (telephonyCallback != null) return
+            try {
+                val tm = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager ?: return
+                val callback = object : TelephonyCallback(), TelephonyCallback.DisplayInfoListener {
+                    override fun onDisplayInfoChanged(telephonyDisplayInfo: TelephonyDisplayInfo) {
+                        handleNetworkGen(telephonyDisplayInfo.networkType)
+                    }
+                }
+                tm.registerTelephonyCallback(mainExecutor, callback)
+                telephonyCallback = callback
+                DebugLogger.log("NETWORK_WATCH", "Cellular generation listener engaged")
+            } catch (e: Exception) {
+                DebugLogger.log("NETWORK_WATCH", "Failed to register cellular listener: ${e.message}")
+            }
+        }
+    }
+
+    private fun handleNetworkGen(networkType: Int) {
+        val currentGen = getNetworkGeneration(networkType)
+        if (currentGen == "Unknown" || currentGen == lastNetworkGen) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastGenChangeTime < 1500) return
+        
+        val previousGen = lastNetworkGen
+        lastNetworkGen = currentGen
+        lastGenChangeTime = now
+
+        if (previousGen != null) {
+            DebugLogger.log("NETWORK_WATCH", "Signal Transition: $previousGen -> $currentGen")
+            
+            val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
+            if (!prefs.getBoolean("announce_network", true)) return
+
+            val message = when {
+                currentGen == "4G" -> "4G restored"
+                currentGen == "5G" -> "5G connected"
+                currentGen == "3G" && previousGen in listOf("4G", "5G") -> "Network dropped to 3G"
+                currentGen == "2G" -> "Network dropped to 2G"
+                else -> null
+            }
+
+            if (message != null) {
+                val intent = Intent(this, PlaybackService::class.java).apply {
+                    action = "SPEAK_STATUS"
+                    putExtra("message", message)
+                    putExtra("priority", 1)
+                }
+                startService(intent)
+            }
+        } else {
+            DebugLogger.log("NETWORK_WATCH", "Initial cellular generation: $currentGen")
+        }
+    }
+
+    private fun getNetworkGeneration(type: Int): String {
+        return when (type) {
+            TelephonyManager.NETWORK_TYPE_LTE -> "4G"
+            TelephonyManager.NETWORK_TYPE_NR -> "5G"
+            TelephonyManager.NETWORK_TYPE_UMTS,
+            TelephonyManager.NETWORK_TYPE_EVDO_0,
+            TelephonyManager.NETWORK_TYPE_EVDO_A,
+            TelephonyManager.NETWORK_TYPE_HSDPA,
+            TelephonyManager.NETWORK_TYPE_HSUPA,
+            TelephonyManager.NETWORK_TYPE_HSPA,
+            TelephonyManager.NETWORK_TYPE_EVDO_B,
+            TelephonyManager.NETWORK_TYPE_EHRPD,
+            TelephonyManager.NETWORK_TYPE_HSPAP,
+            TelephonyManager.NETWORK_TYPE_TD_SCDMA -> "3G"
+            TelephonyManager.NETWORK_TYPE_GPRS,
+            TelephonyManager.NETWORK_TYPE_EDGE,
+            TelephonyManager.NETWORK_TYPE_CDMA,
+            TelephonyManager.NETWORK_TYPE_1xRTT,
+            TelephonyManager.NETWORK_TYPE_IDEN,
+            TelephonyManager.NETWORK_TYPE_GSM -> "2G"
+            else -> "Unknown"
+        }
+    }
+
+    override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (telephonyCallback as? TelephonyCallback)?.let {
+                val tm = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+                try { tm?.unregisterTelephonyCallback(it) } catch (e: Exception) {}
+            }
+            telephonyCallback = null
+        }
+        if (isObserverRegistered) {
+            try { contentResolver.unregisterContentObserver(observer) } catch (e: Exception) {}
+            isObserverRegistered = false
+        }
+        watchdogHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
 
     private fun createNotificationChannel() {
         val serviceChannel = NotificationChannel(CHANNEL_ID, "Monitor Service", NotificationManager.IMPORTANCE_LOW)
