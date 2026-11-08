@@ -320,7 +320,7 @@ class KeyInterceptService : AccessibilityService() {
 
             // 10-Second Auto-Capture Logic
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-            if (prefs.getBoolean("successive_enabled", false)) {
+            if (prefs.getBoolean("successive_enabled", true)) {
                 autoCaptureRunnable = Runnable {
                     DebugLogger.log("AUTO", "10s idle reached. Executing automatic shutter.")
                     smartShutterClick()
@@ -547,9 +547,9 @@ class KeyInterceptService : AccessibilityService() {
 
         // --- Successive Capture Logic ---
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-        val isSuccessive = prefs.getBoolean("successive_enabled", false)
+        val isSuccessive = prefs.getBoolean("successive_enabled", true)
         if (isSuccessive && successiveRemaining == 0) {
-            successiveRemaining = prefs.getInt("successive_count", 3) - 1
+            successiveRemaining = prefs.getInt("successive_count", 6) - 1
             triggerSuccessiveLoop()
         }
 
@@ -594,7 +594,7 @@ class KeyInterceptService : AccessibilityService() {
             }, 2000)
         } else {
             val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
-            val total = prefs.getInt("successive_count", 3)
+            val total = prefs.getInt("successive_count", 6)
             DebugLogger.log("AUTO", "Batch complete. Closing camera automatically.")
             
             // Direct Speech Notification for programmatic auto-close
