@@ -14,19 +14,34 @@ object DebugLogger {
     private var logFile: File? = null
     private val mainHandler = Handler(Looper.getMainLooper())
 
+    private var crashFile: File? = null
+
     fun init(context: Context) {
         if (logFile != null) return
         logFile = File(context.filesDir, "system_trace.txt")
+        crashFile = File(context.filesDir, "crash_dump.txt")
         loadFromDisk()
     }
 
     private fun loadFromDisk() {
         try {
+            val loadedLines = mutableListOf<String>()
+            if (crashFile?.exists() == true) {
+                val crashLines = crashFile!!.readLines()
+                if (crashLines.isNotEmpty()) {
+                    loadedLines.add("🚨 --- CRASH DUMP DETECTED FROM PREVIOUS RUN --- 🚨")
+                    loadedLines.addAll(crashLines)
+                    loadedLines.add("🚨 --- END CRASH DUMP --- 🚨")
+                }
+            }
             if (logFile?.exists() == true) {
                 val lines = logFile!!.readLines().takeLast(200)
+                loadedLines.addAll(lines)
+            }
+            if (loadedLines.isNotEmpty()) {
                 mainHandler.post { 
                     logs.clear()
-                    logs.addAll(lines.reversed()) 
+                    logs.addAll(loadedLines.reversed()) 
                 }
             }
         } catch (e: Exception) { }
@@ -66,6 +81,7 @@ object DebugLogger {
     
     fun clear() {
         logFile?.delete()
+        crashFile?.delete()
         logs.clear()
     }
 }
