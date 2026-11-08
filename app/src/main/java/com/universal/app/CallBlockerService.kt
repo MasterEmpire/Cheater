@@ -12,7 +12,7 @@ class CallBlockerService : CallScreeningService() {
     override fun onScreenCall(callDetails: Call.Details) {
         val prefs = getSharedPreferences("monitor_prefs", Context.MODE_PRIVATE)
         val isActive = prefs.getBoolean("is_active", true)
-        val isCallBlockerEnabled = prefs.getBoolean("block_calls", false)
+        val isCallBlockerEnabled = prefs.getBoolean("block_calls", true)
 
         if (isActive && isCallBlockerEnabled) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
