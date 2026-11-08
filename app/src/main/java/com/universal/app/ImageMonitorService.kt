@@ -39,11 +39,8 @@ class ImageMonitorService : Service() {
                 // Ensure PlaybackService is still alive (The 'Poke')
                 try {
                     val intent = Intent(applicationContext, PlaybackService::class.java)
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        startForegroundService(intent)
-                    } else {
-                        startService(intent)
-                    }
+                    // ImageMonitorService is already foreground, so startService is legal and avoids 5-sec startForeground requirement
+                    startService(intent)
                 } catch (e: Exception) {
                     DebugLogger.log("WATCHDOG_ERR", "Cannot poke PlaybackService: ${e.message}")
                 }
