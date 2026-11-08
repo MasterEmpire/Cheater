@@ -157,7 +157,9 @@ fun AppDashboard() {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     PermissionChip("Files", hasPermission, Modifier.weight(1f)) {
                         val perms = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            arrayOf(Manifest.permission.READ_MEDIA_IMAGES)
+                            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.BLUETOOTH_CONNECT)
+                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.BLUETOOTH_CONNECT)
                         } else {
                             arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
                         }
@@ -435,7 +437,11 @@ fun LogModal(onDismiss: () -> Unit) {
 
 private fun checkPermissions(context: Context): Boolean {
     val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
-    return ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+    val hasStorage = ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+    val hasBluetooth = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+    } else true
+    return hasStorage && hasBluetooth
 }
 
 private fun startServices(context: Context) {
