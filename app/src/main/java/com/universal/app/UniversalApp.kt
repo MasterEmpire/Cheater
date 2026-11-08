@@ -10,9 +10,6 @@ import java.util.Locale
 
 class UniversalApp : Application() {
     override fun onCreate() {
-        super.onCreate()
-        DebugLogger.init(applicationContext)
-
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
@@ -24,16 +21,33 @@ class UniversalApp : Application() {
                 val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
                 val dumpText = "FATAL CRASH on Thread '${thread.name}' at $timestamp:\n${throwable.javaClass.name}: ${throwable.message}\n$stackTrace\n"
 
-                val crashFile = File(filesDir, "crash_dump.txt")
-                crashFile.writeText(dumpText)
-                
-                val traceFile = File(filesDir, "system_trace.txt")
-                traceFile.appendText("[$timestamp] FATAL_CRASH: ${throwable.javaClass.simpleName} - ${throwable.message}\n")
-            } catch (e: Exception) {
+                // 1. Write to internal sandbox
+                try {
+                    val crashFile = File(filesDir, "crash_dump.txt")
+                    crashFile.writeText(dumpText)
+                } catch (ignored: Throwable) {}
+
+                // 2. Write to accessible external storage (Android/data/com.universal.app/files/)
+                try {
+                    val extDir = getExternalFilesDir(null)
+                    if (extDir != null) {
+                        val extCrashFile = File(extDir, "crash_dump.txt")
+                        extCrashFile.writeText(dumpText)
+                    }
+                } catch (ignored: Throwable) {}
+
+                try {
+                    val traceFile = File(filesDir, "system_trace.txt")
+                    traceFile.appendText("[$timestamp] FATAL_CRASH: ${throwable.javaClass.simpleName} - ${throwable.message}\n")
+                } catch (ignored: Throwable) {}
+            } catch (e: Throwable) {
                 // Fail-safe: do not prevent process death forwarding
             } finally {
                 defaultHandler?.uncaughtException(thread, throwable)
             }
         }
+
+        super.onCreate()
+        DebugLogger.init(applicationContext)
     }
 }
