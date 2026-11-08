@@ -34,7 +34,7 @@ object DebugLogger {
                     loadedLines.add("🚨 --- END CRASH DUMP --- 🚨")
                 }
             }
-            if (logFile?.exists() == true) {
+            if (logFile?.exists() == true && logFile!!.length() < 1_000_000L) {
                 val lines = logFile!!.readLines().takeLast(200)
                 loadedLines.addAll(lines)
             }
@@ -44,7 +44,7 @@ object DebugLogger {
                     logs.addAll(loadedLines.reversed()) 
                 }
             }
-        } catch (e: Exception) { }
+        } catch (e: Throwable) { }
     }
 
     @Synchronized
@@ -62,18 +62,24 @@ object DebugLogger {
             logs.add(0, entry)
             if (logs.size > 250) {
                 logs.removeAt(logs.size - 1)
-                // Trim file occasionally to prevent bloat
-                if (logs.size % 50 == 0) trimFile()
             }
+            trimFileIfNeeded()
         }
     }
 
-    private fun trimFile() {
+    private var isTrimming = false
+    private fun trimFileIfNeeded() {
+        val file = logFile ?: return
+        if (isTrimming || !file.exists() || file.length() < 100_000L) return
+        isTrimming = true
         Thread { 
             try {
-                val currentLogs = logFile?.readLines()?.takeLast(200) ?: return@Thread
-                logFile?.writeText(currentLogs.joinToString("\n") + "\n")
-            } catch (e: Exception) {}
+                val currentLogs = file.readLines().takeLast(200)
+                file.writeText(currentLogs.joinToString("\n") + "\n")
+            } catch (e: Throwable) {
+            } finally {
+                isTrimming = false
+            }
         }.start()
     }
 
