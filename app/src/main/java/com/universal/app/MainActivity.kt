@@ -95,7 +95,7 @@ fun AppDashboard() {
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
         hasPermission = results.values.all { it }
-        if (hasPermission) startServices(context)
+        if (hasPermission && isSystemActive) startServices(context)
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -144,7 +144,7 @@ fun AppDashboard() {
                     editor.commit()
                     
                     if (!isActive) {
-                        context.stopService(Intent(context, ImageMonitorService::class.java))
+                        context.startService(Intent(context, ImageMonitorService::class.java).apply { action = "ACTION_STOP" })
                         context.stopService(Intent(context, PlaybackService::class.java))
                     } else if (hasPermission) startServices(context)
                 }
@@ -320,7 +320,7 @@ fun AppDashboard() {
     }
 
     if (showLogs) LogModal { showLogs = false }
-    LaunchedEffect(Unit) { refreshFiles(); if (hasPermission) startServices(context) }
+    LaunchedEffect(Unit) { refreshFiles(); if (hasPermission && isSystemActive) startServices(context) }
 }
 
 @Composable
